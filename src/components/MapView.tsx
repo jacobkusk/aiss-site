@@ -368,8 +368,22 @@ export default function MapView({
         filter: buildVesselFilter(DEFAULT_OVERLAYS),
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 1.5, 8, 3, 14, 6],
-          "circle-color": ["match", ["to-number", ["get", "ship_type"], 0], ...SHIP_TYPE_COLORS, "#6b8fa3"],
-          "circle-opacity": 0.85,
+          "circle-color": [
+            "case",
+            ["==", ["get", "source"], "waveo"], "#2ba8c8",
+            ["all", [">=", ["to-number", ["get", "ship_type"], 0], 70], ["<", ["to-number", ["get", "ship_type"], 0], 80]], "#4a8f4a",
+            ["all", [">=", ["to-number", ["get", "ship_type"], 0], 80], ["<", ["to-number", ["get", "ship_type"], 0], 90]], "#c44040",
+            ["all", [">=", ["to-number", ["get", "ship_type"], 0], 60], ["<", ["to-number", ["get", "ship_type"], 0], 70]], "#4a90d9",
+            ["all", [">=", ["to-number", ["get", "ship_type"], 0], 30], ["<", ["to-number", ["get", "ship_type"], 0], 40]], "#d4a017",
+            ["==", ["to-number", ["get", "ship_type"], 0], 36], "#2ba8c8",
+            ["==", ["to-number", ["get", "ship_type"], 0], 37], "#2ba8c8",
+            "#6b8fa3",
+          ] as any,
+          "circle-opacity": [
+            "case",
+            [">", ["to-number", ["get", "speed"], 0], 0.5], 0.85,
+            0.35,
+          ] as any,
         },
       });
 
