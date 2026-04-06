@@ -92,13 +92,13 @@ type Overlays = Record<string, boolean>;
 const DEFAULT_OVERLAYS: Overlays = {
   seamarks: false,
   underway: true,
-  anchored: false,
+  anchored: true,
   predictions: true,
-  trails: false,
+  trails: true,
   cargo: true,
   tanker: true,
   passenger: true,
-  fishing: false,
+  fishing: true,
   sailing: true,
   names: false,
 };
@@ -352,14 +352,14 @@ export default function MapView({
         paint: { "text-color": "#ffffff" },
       });
 
-      // Vessel trails (default OFF)
+      // Vessel trails
       map.addLayer({
         id: "vessel-trails",
         type: "line",
         source: "trails",
         minzoom: 8,
         paint: { "line-color": "#2ba8c8", "line-width": 1, "line-opacity": 0.3 },
-        layout: { visibility: "none" },
+        layout: { visibility: "visible" },
       });
 
       // Vessel dots
