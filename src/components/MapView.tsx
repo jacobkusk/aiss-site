@@ -156,10 +156,10 @@ function buildVesselFilter(ov: Overlays): maplibregl.FilterSpecification {
   }
 
   if (typeConditions.length > 0) {
-    conditions.push(["any", ...typeConditions]);
+    conditions.push(["any", ...typeConditions] as any);
   }
 
-  return ["all", ...conditions];
+  return ["all", ...conditions] as any;
 }
 
 export default function MapView({
