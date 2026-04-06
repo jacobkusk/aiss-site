@@ -532,7 +532,7 @@ export default function MapView({
       <div
         ref={containerRef}
         className="w-full h-full"
-        style={{ background: "var(--bg-deep)" }}
+        style={{ background: "#d5dce3" }}
       />
 
       {/* Overlay Toggle Panel */}
