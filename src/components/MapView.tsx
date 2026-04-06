@@ -72,18 +72,18 @@ function vesselFromFeature(f: GeoJSON.Feature): Vessel {
 }
 
 // Overlay config
-const OVERLAY_LABELS: Record<string, { label: string; color: string }> = {
-  seamarks: { label: "Sea Marks", color: "#5a8090" },
-  underway: { label: "Underway", color: "#00e676" },
-  anchored: { label: "At Anchor", color: "#5a8090" },
-  predictions: { label: "Predictions", color: "#ffffff" },
-  trails: { label: "Trails", color: "#2ba8c8" },
-  cargo: { label: "Cargo", color: "#4a8f4a" },
-  tanker: { label: "Tanker", color: "#c44040" },
-  passenger: { label: "Passenger", color: "#4a90d9" },
-  fishing: { label: "Fishing", color: "#d4a017" },
-  sailing: { label: "Sailing", color: "#2ba8c8" },
-  names: { label: "Names", color: "#8ba8b8" },
+const OVERLAY_LABELS: Record<string, string> = {
+  seamarks: "⚓ Sea Marks",
+  underway: "🚢 Underway",
+  anchored: "⚓ At Anchor",
+  predictions: "➡️ Predictions",
+  trails: "〰️ Trails",
+  cargo: "📦 Cargo",
+  tanker: "🛢️ Tanker",
+  passenger: "⛴️ Passenger",
+  fishing: "🎣 Fishing",
+  sailing: "⛵ Sailing",
+  names: "Aa Names",
 };
 
 type Overlays = Record<string, boolean>;
@@ -156,10 +156,10 @@ function buildVesselFilter(ov: Overlays): maplibregl.FilterSpecification {
   }
 
   if (typeConditions.length > 0) {
-    conditions.push(["any", ...typeConditions] as any);
+    conditions.push(["any", ...typeConditions]);
   }
 
-  return ["all", ...conditions] as any;
+  return ["all", ...conditions];
 }
 
 export default function MapView({
@@ -368,22 +368,8 @@ export default function MapView({
         filter: buildVesselFilter(DEFAULT_OVERLAYS),
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 1.5, 8, 3, 14, 6],
-          "circle-color": [
-            "case",
-            ["==", ["get", "source"], "waveo"], "#2ba8c8",
-            ["all", [">=", ["to-number", ["get", "ship_type"], 0], 70], ["<", ["to-number", ["get", "ship_type"], 0], 80]], "#4a8f4a",
-            ["all", [">=", ["to-number", ["get", "ship_type"], 0], 80], ["<", ["to-number", ["get", "ship_type"], 0], 90]], "#c44040",
-            ["all", [">=", ["to-number", ["get", "ship_type"], 0], 60], ["<", ["to-number", ["get", "ship_type"], 0], 70]], "#4a90d9",
-            ["all", [">=", ["to-number", ["get", "ship_type"], 0], 30], ["<", ["to-number", ["get", "ship_type"], 0], 40]], "#d4a017",
-            ["==", ["to-number", ["get", "ship_type"], 0], 36], "#2ba8c8",
-            ["==", ["to-number", ["get", "ship_type"], 0], 37], "#2ba8c8",
-            "#6b8fa3",
-          ] as any,
-          "circle-opacity": [
-            "case",
-            [">", ["to-number", ["get", "speed"], 0], 0.5], 0.85,
-            0.35,
-          ] as any,
+          "circle-color": ["match", ["to-number", ["get", "ship_type"], 0], ...SHIP_TYPE_COLORS, "#6b8fa3"],
+          "circle-opacity": 0.85,
         },
       });
 
@@ -549,47 +535,6 @@ export default function MapView({
         style={{ background: "var(--bg-deep)" }}
       />
 
-      {/* Globe/Map Toggle */}
-      <div style={{
-        position: "absolute",
-        top: "12px",
-        right: "12px",
-        display: "flex",
-        background: "rgba(4, 12, 20, 0.85)",
-        backdropFilter: "blur(12px)",
-        border: "1px solid rgba(43, 168, 200, 0.15)",
-        borderRadius: "8px",
-        overflow: "hidden",
-        zIndex: 10,
-      }}>
-        <button
-          onClick={() => { try { (mapRef.current as any)?.setProjection("globe"); } catch {} }}
-          style={{
-            padding: "7px 16px",
-            fontSize: "12px",
-            fontWeight: 500,
-            border: "none",
-            cursor: "pointer",
-            background: isGlobe ? "rgba(43, 168, 200, 0.15)" : "transparent",
-            color: isGlobe ? "#2ba8c8" : "#5a8090",
-            transition: "all 0.15s",
-          }}
-        >Globe</button>
-        <button
-          onClick={() => { try { (mapRef.current as any)?.setProjection("mercator"); } catch {} }}
-          style={{
-            padding: "7px 16px",
-            fontSize: "12px",
-            fontWeight: 500,
-            border: "none",
-            cursor: "pointer",
-            background: !isGlobe ? "rgba(43, 168, 200, 0.15)" : "transparent",
-            color: !isGlobe ? "#2ba8c8" : "#5a8090",
-            transition: "all 0.15s",
-          }}
-        >Map</button>
-      </div>
-
       {/* Overlay Toggle Panel */}
       <div
         style={{
@@ -607,7 +552,7 @@ export default function MapView({
           zIndex: 10,
         }}
       >
-        {Object.entries(OVERLAY_LABELS).map(([key, item]) => (
+        {Object.entries(OVERLAY_LABELS).map(([key, label]) => (
           <button
             key={key}
             onClick={() => toggleOverlay(key)}
@@ -622,20 +567,9 @@ export default function MapView({
               textAlign: "left",
               whiteSpace: "nowrap",
               transition: "all 0.15s",
-              display: "flex",
-              alignItems: "center",
             }}
           >
-            <span style={{
-              display: "inline-block",
-              width: "8px",
-              height: "8px",
-              borderRadius: "50%",
-              backgroundColor: item.color,
-              marginRight: "8px",
-              opacity: overlays[key] ? 1 : 0.3,
-            }} />
-            {item.label}
+            {label}
           </button>
         ))}
       </div>
