@@ -274,7 +274,7 @@ export default function MapView({
       if (predSrc) predSrc.setData(buildPredictions(geojson));
     }
 
-    map.on("load", async () => {
+    map.on("load", () => {
       // Globe projection
       try { (map as any).setProjection({ type: "globe" }); } catch {}
 
@@ -289,30 +289,46 @@ export default function MapView({
         });
       } catch {}
 
-      // Load vessel icons (SVG triangles and circles)
+      // Generate vessel icons via canvas (sync)
       const iconColors: Record<string, string> = {
         cargo: "#4a8f4a", tanker: "#c44040", passenger: "#4a90d9",
         fishing: "#d4a017", sailing: "#2ba8c8", special: "#e07020", unknown: "#6b8fa3",
       };
-      const loadIcon = (name: string, svg: string): Promise<void> =>
-        new Promise((resolve) => {
-          const img = new Image(24, 24);
-          img.onload = () => { map.addImage(name, img); resolve(); };
-          img.onerror = () => resolve();
-          img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-        });
-      const iconPromises: Promise<void>[] = [];
+      const makeTriangle = (color: string, size: number): ImageData => {
+        const c = document.createElement("canvas");
+        c.width = size; c.height = size;
+        const ctx = c.getContext("2d")!;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(size / 2, 1);
+        ctx.lineTo(size - 2, size - 1);
+        ctx.lineTo(2, size - 1);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.4)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        return ctx.getImageData(0, 0, size, size);
+      };
+      const makeCircle = (color: string, size: number): ImageData => {
+        const c = document.createElement("canvas");
+        c.width = size; c.height = size;
+        const ctx = c.getContext("2d")!;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.3)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        return ctx.getImageData(0, 0, size, size);
+      };
       for (const [name, color] of Object.entries(iconColors)) {
-        // Triangle (underway) — points up, will be rotated by heading
-        iconPromises.push(loadIcon(`tri-${name}`,
-          `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><polygon points="12,2 22,22 2,22" fill="${color}" stroke="rgba(0,0,0,0.4)" stroke-width="1"/></svg>`
-        ));
-        // Circle (anchored)
-        iconPromises.push(loadIcon(`circ-${name}`,
-          `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="${color}" stroke="rgba(0,0,0,0.3)" stroke-width="1"/></svg>`
-        ));
+        const tri = makeTriangle(color, 24);
+        map.addImage(`tri-${name}`, { width: 24, height: 24, data: new Uint8Array(tri.data.buffer) });
+        const circ = makeCircle(color, 16);
+        map.addImage(`circ-${name}`, { width: 16, height: 16, data: new Uint8Array(circ.data.buffer) });
       }
-      await Promise.all(iconPromises);
 
       // Sources
       map.addSource("vessels", {
