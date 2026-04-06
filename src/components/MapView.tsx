@@ -357,7 +357,7 @@ export default function MapView({
         id: "vessel-trails",
         type: "line",
         source: "trails",
-        minzoom: 8,
+        minzoom: 4,
         paint: { "line-color": "#2ba8c8", "line-width": 1, "line-opacity": 0.3 },
         layout: { visibility: "visible" },
       });
@@ -372,6 +372,9 @@ export default function MapView({
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 1.5, 8, 3, 14, 6],
           "circle-color": [
             "case",
+            // Underway vessels (speed > 0.5) get green
+            [">", ["to-number", ["get", "speed"], 0], 0.5], "#00c853",
+            // Anchored/stopped: color by ship_type
             ["all", [">=", ["to-number", ["get", "ship_type"], 0], 70], ["<", ["to-number", ["get", "ship_type"], 0], 80]], "#4a8f4a",
             ["all", [">=", ["to-number", ["get", "ship_type"], 0], 80], ["<", ["to-number", ["get", "ship_type"], 0], 90]], "#c44040",
             ["all", [">=", ["to-number", ["get", "ship_type"], 0], 60], ["<", ["to-number", ["get", "ship_type"], 0], 70]], "#4a90d9",
@@ -380,7 +383,11 @@ export default function MapView({
             ["==", ["to-number", ["get", "ship_type"], 0], 37], "#2ba8c8",
             "#6b8fa3",
           ] as any,
-          "circle-opacity": 0.85,
+          "circle-opacity": [
+            "case",
+            [">", ["to-number", ["get", "speed"], 0], 0.5], 0.95,
+            0.4,
+          ] as any,
         },
       });
 
@@ -410,7 +417,7 @@ export default function MapView({
         id: "vessel-predictions",
         type: "line",
         source: "predictions",
-        minzoom: 8,
+        minzoom: 4,
         paint: {
           "line-color": "#ffffff",
           "line-width": 1,
