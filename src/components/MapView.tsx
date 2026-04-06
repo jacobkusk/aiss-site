@@ -601,7 +601,7 @@ export default function MapView({
       <div
         ref={containerRef}
         className="w-full h-full"
-        style={{ background: "var(--bg-deep)" }}
+        style={{ background: "#e8e8e8" }}
       />
 
       {/* Globe/Map Segmented Control */}
