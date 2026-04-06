@@ -405,10 +405,21 @@ export default function MapView({
         layout: { visibility: "visible" },
       });
 
-      // Vessel icons (MarineTraffic style — triangles underway, circles anchored)
-      const st = ["to-number", ["get", "ship_type"], 0];
+      // Vessel icons (MarineTraffic style)
+      // Use match with explicit values — more reliable than range comparisons
       const spd = ["to-number", ["get", "speed"], 0];
       const uw = [">", spd, 0.5];
+      // Map ship_type to category name
+      const typeCategory = [
+        "match", ["get", "ship_type"],
+        [70,71,72,73,74,75,76,77,78,79], "cargo",
+        [80,81,82,83,84,85,86,87,88,89], "tanker",
+        [60,61,62,63,64,65,66,67,68,69], "passenger",
+        [30,31,32,33,34,35], "fishing",
+        [36,37], "sailing",
+        [40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59], "special",
+        "unknown",
+      ];
       map.addLayer({
         id: "ais-vessels",
         type: "symbol",
@@ -416,21 +427,9 @@ export default function MapView({
         filter: buildVesselFilter(DEFAULT_OVERLAYS),
         layout: {
           "icon-image": [
-            "case",
-            ["all", uw, ["all", [">=", st, 70], ["<", st, 80]]], "tri-cargo",
-            ["all", uw, ["all", [">=", st, 80], ["<", st, 90]]], "tri-tanker",
-            ["all", uw, ["all", [">=", st, 60], ["<", st, 70]]], "tri-passenger",
-            ["all", uw, ["all", [">=", st, 30], ["<", st, 36]]], "tri-fishing",
-            ["all", uw, ["any", ["==", st, 36], ["==", st, 37]]], "tri-sailing",
-            ["all", uw, ["all", [">=", st, 40], ["<", st, 60]]], "tri-special",
-            uw, "tri-unknown",
-            ["all", [">=", st, 70], ["<", st, 80]], "circ-cargo",
-            ["all", [">=", st, 80], ["<", st, 90]], "circ-tanker",
-            ["all", [">=", st, 60], ["<", st, 70]], "circ-passenger",
-            ["all", [">=", st, 30], ["<", st, 36]], "circ-fishing",
-            ["any", ["==", st, 36], ["==", st, 37]], "circ-sailing",
-            ["all", [">=", st, 40], ["<", st, 60]], "circ-special",
-            "circ-unknown",
+            "concat",
+            ["case", uw, "tri-", "circ-"],
+            typeCategory,
           ] as any,
           "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.5, 8, 0.8, 14, 1.2] as any,
           "icon-rotate": ["case", uw, ["to-number", ["get", "heading"], 0], 0] as any,
