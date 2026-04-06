@@ -560,7 +560,7 @@ export default function MapView({
         zIndex: 10,
       }}>
         <button
-          onClick={() => { try { (mapRef.current as any)?.setProjection("globe"); } catch {} onToggleGlobe(true); }}
+          onClick={() => { try { (mapRef.current as any)?.setProjection({ type: "globe" }); } catch {} onToggleGlobe(true); }}
           style={{
             padding: "5px 14px", fontSize: "11px", fontWeight: 500, border: "none",
             cursor: "pointer", transition: "all 0.15s",
@@ -569,7 +569,7 @@ export default function MapView({
           }}
         >Globe</button>
         <button
-          onClick={() => { try { (mapRef.current as any)?.setProjection("mercator"); } catch {} onToggleGlobe(false); }}
+          onClick={() => { try { (mapRef.current as any)?.setProjection({ type: "mercator" }); } catch {} onToggleGlobe(false); }}
           style={{
             padding: "5px 14px", fontSize: "11px", fontWeight: 500, border: "none",
             cursor: "pointer", transition: "all 0.15s",
