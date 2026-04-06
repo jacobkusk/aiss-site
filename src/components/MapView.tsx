@@ -549,8 +549,9 @@ export default function MapView({
       {/* Globe/Map Segmented Control */}
       <div style={{
         position: "absolute",
-        top: "44px",
-        left: "394px",
+        top: "12px",
+        left: "50%",
+        transform: "translateX(-50%)",
         display: "flex",
         background: "rgba(120, 120, 128, 0.24)",
         backdropFilter: "blur(12px)",
