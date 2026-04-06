@@ -274,7 +274,7 @@ export default function MapView({
       if (predSrc) predSrc.setData(buildPredictions(geojson));
     }
 
-    map.on("load", () => {
+    map.on("load", async () => {
       // Globe projection
       try { (map as any).setProjection({ type: "globe" }); } catch {}
 
@@ -288,6 +288,31 @@ export default function MapView({
           "star-intensity": 0.15,
         });
       } catch {}
+
+      // Load vessel icons (SVG triangles and circles)
+      const iconColors: Record<string, string> = {
+        cargo: "#4a8f4a", tanker: "#c44040", passenger: "#4a90d9",
+        fishing: "#d4a017", sailing: "#2ba8c8", special: "#e07020", unknown: "#6b8fa3",
+      };
+      const loadIcon = (name: string, svg: string): Promise<void> =>
+        new Promise((resolve) => {
+          const img = new Image(24, 24);
+          img.onload = () => { map.addImage(name, img); resolve(); };
+          img.onerror = () => resolve();
+          img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+        });
+      const iconPromises: Promise<void>[] = [];
+      for (const [name, color] of Object.entries(iconColors)) {
+        // Triangle (underway) — points up, will be rotated by heading
+        iconPromises.push(loadIcon(`tri-${name}`,
+          `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><polygon points="12,2 22,22 2,22" fill="${color}" stroke="rgba(0,0,0,0.4)" stroke-width="1"/></svg>`
+        ));
+        // Circle (anchored)
+        iconPromises.push(loadIcon(`circ-${name}`,
+          `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="${color}" stroke="rgba(0,0,0,0.3)" stroke-width="1"/></svg>`
+        ));
+      }
+      await Promise.all(iconPromises);
 
       // Sources
       map.addSource("vessels", {
@@ -362,37 +387,43 @@ export default function MapView({
         layout: { visibility: "visible" },
       });
 
-      // Vessel dots (MarineTraffic colors by ship_type)
+      // Vessel icons (MarineTraffic style — triangles underway, circles anchored)
       const st = ["to-number", ["get", "ship_type"], 0];
       const spd = ["to-number", ["get", "speed"], 0];
       const uw = [">", spd, 0.5];
       map.addLayer({
         id: "ais-vessels",
-        type: "circle",
+        type: "symbol",
         source: "vessels",
         filter: buildVesselFilter(DEFAULT_OVERLAYS),
-        paint: {
-          "circle-radius": [
-            "interpolate", ["linear"], ["zoom"],
-            2, ["case", uw, 2.5, 1.5],
-            8, ["case", uw, 4, 2.5],
-            14, ["case", uw, 7, 5],
-          ] as any,
-          "circle-color": [
+        layout: {
+          "icon-image": [
             "case",
-            ["all", [">=", st, 70], ["<", st, 80]], "#4a8f4a",   // cargo green
-            ["all", [">=", st, 80], ["<", st, 90]], "#c44040",   // tanker red
-            ["all", [">=", st, 60], ["<", st, 70]], "#4a90d9",   // passenger blue
-            ["all", [">=", st, 30], ["<", st, 36]], "#d4a017",   // fishing yellow
-            ["any", ["==", st, 36], ["==", st, 37]], "#2ba8c8",  // sailing cyan
-            ["all", [">=", st, 40], ["<", st, 60]], "#e07020",   // special orange
-            "#6b8fa3",                                            // unknown grey
+            ["all", uw, ["all", [">=", st, 70], ["<", st, 80]]], "tri-cargo",
+            ["all", uw, ["all", [">=", st, 80], ["<", st, 90]]], "tri-tanker",
+            ["all", uw, ["all", [">=", st, 60], ["<", st, 70]]], "tri-passenger",
+            ["all", uw, ["all", [">=", st, 30], ["<", st, 36]]], "tri-fishing",
+            ["all", uw, ["any", ["==", st, 36], ["==", st, 37]]], "tri-sailing",
+            ["all", uw, ["all", [">=", st, 40], ["<", st, 60]]], "tri-special",
+            uw, "tri-unknown",
+            ["all", [">=", st, 70], ["<", st, 80]], "circ-cargo",
+            ["all", [">=", st, 80], ["<", st, 90]], "circ-tanker",
+            ["all", [">=", st, 60], ["<", st, 70]], "circ-passenger",
+            ["all", [">=", st, 30], ["<", st, 36]], "circ-fishing",
+            ["any", ["==", st, 36], ["==", st, 37]], "circ-sailing",
+            ["all", [">=", st, 40], ["<", st, 60]], "circ-special",
+            "circ-unknown",
           ] as any,
-          "circle-opacity": ["case", uw, 0.95, 0.4] as any,
-          "circle-stroke-width": ["case", uw, 1.5, 0.5] as any,
-          "circle-stroke-color": ["case", uw, "rgba(255,255,255,0.6)", "rgba(255,255,255,0.2)"] as any,
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.5, 8, 0.8, 14, 1.2] as any,
+          "icon-rotate": ["case", uw, ["to-number", ["get", "heading"], 0], 0] as any,
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
         },
-      });
+        paint: {
+          "icon-opacity": ["case", uw, 0.95, 0.5] as any,
+        },
+      } as any);
 
       // Vessel labels (default OFF)
       map.addLayer({
