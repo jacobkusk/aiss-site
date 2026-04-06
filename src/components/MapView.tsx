@@ -226,13 +226,13 @@ export default function MapView({
         sources: {
           "carto-dark": {
             type: "raster",
-            tiles: ["https://basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}@2x.png"],
+            tiles: ["https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png"],
             tileSize: 256,
             attribution: "&copy; CARTO &copy; OpenStreetMap",
           },
           "carto-labels": {
             type: "raster",
-            tiles: ["https://basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}@2x.png"],
+            tiles: ["https://basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png"],
             tileSize: 256,
           },
         },
