@@ -282,7 +282,7 @@ export default function MapView({
           color: "#0d1b2a",
           "high-color": "#0a1525",
           "horizon-blend": 0.04,
-          "space-color": "#0f1a24",
+          "space-color": "#111820",
           "star-intensity": 0.15,
         });
       } catch {}
