@@ -4,7 +4,7 @@ import { useState, useCallback, useRef } from "react";
 import type maplibregl from "maplibre-gl";
 import LeftPanel from "@/components/LeftPanel";
 import MapView from "@/components/MapView";
-import GlobeMapToggle from "@/components/GlobeMapToggle";
+
 import LiveHistoricalBadge from "@/components/LiveHistoricalBadge";
 import VesselPopup from "@/components/VesselPopup";
 import ApiHint from "@/components/ApiHint";
@@ -62,6 +62,7 @@ export default function Home() {
           onVesselsUpdate={setVessels}
           onVesselClick={setSelectedVessel}
           onRouteCountUpdate={setRouteCount}
+          onToggleGlobe={setIsGlobe}
         />
 
         {/* Overlays */}
@@ -71,8 +72,6 @@ export default function Home() {
           date={historicalDate}
           routeCount={routeCount}
         />
-
-        <GlobeMapToggle isGlobe={isGlobe} onToggle={() => setIsGlobe(!isGlobe)} />
 
         {selectedVessel && (
           <VesselPopup

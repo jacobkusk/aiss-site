@@ -14,6 +14,7 @@ interface Props {
   onVesselsUpdate: (vessels: Vessel[]) => void;
   onVesselClick: (vessel: Vessel) => void;
   onRouteCountUpdate: (count: number) => void;
+  onToggleGlobe: (globe: boolean) => void;
 }
 
 // Predict position based on COG and SOG
@@ -170,6 +171,7 @@ export default function MapView({
   onVesselsUpdate,
   onVesselClick,
   onRouteCountUpdate,
+  onToggleGlobe,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const initializedRef = useRef(false);
@@ -543,6 +545,39 @@ export default function MapView({
         className="w-full h-full"
         style={{ background: "var(--bg-deep)" }}
       />
+
+      {/* Globe/Map Segmented Control */}
+      <div style={{
+        position: "absolute",
+        top: "44px",
+        left: "394px",
+        display: "flex",
+        background: "rgba(4, 12, 20, 0.85)",
+        backdropFilter: "blur(12px)",
+        border: "1px solid rgba(43, 168, 200, 0.15)",
+        borderRadius: "6px",
+        overflow: "hidden",
+        zIndex: 10,
+      }}>
+        <button
+          onClick={() => { try { (mapRef.current as any)?.setProjection("globe"); } catch {} onToggleGlobe(true); }}
+          style={{
+            padding: "5px 14px", fontSize: "11px", fontWeight: 500, border: "none",
+            cursor: "pointer", transition: "all 0.15s",
+            background: isGlobe ? "rgba(43, 168, 200, 0.15)" : "transparent",
+            color: isGlobe ? "#2ba8c8" : "#5a8090",
+          }}
+        >Globe</button>
+        <button
+          onClick={() => { try { (mapRef.current as any)?.setProjection("mercator"); } catch {} onToggleGlobe(false); }}
+          style={{
+            padding: "5px 14px", fontSize: "11px", fontWeight: 500, border: "none",
+            cursor: "pointer", transition: "all 0.15s",
+            background: !isGlobe ? "rgba(43, 168, 200, 0.15)" : "transparent",
+            color: !isGlobe ? "#2ba8c8" : "#5a8090",
+          }}
+        >Map</button>
+      </div>
 
       {/* Overlay Toggle Panel */}
       <div
