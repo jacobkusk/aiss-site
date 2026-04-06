@@ -280,10 +280,10 @@ export default function MapView({
       try {
         (map as any).setFog({
           color: "#0d1b2a",
-          "high-color": "#0a1525",
+          "high-color": "#020a12",
           "horizon-blend": 0.04,
           "space-color": "#0f1a24",
-          "star-intensity": 0.15,
+          "star-intensity": 0.25,
         });
       } catch {}
 
