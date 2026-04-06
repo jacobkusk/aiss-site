@@ -279,11 +279,11 @@ export default function MapView({
       // Dark atmosphere
       try {
         (map as any).setFog({
-          color: "#0d1b2a",
-          "high-color": "#020a12",
+          color: "#c8d0d8",
+          "high-color": "#a0aab4",
           "horizon-blend": 0.04,
-          "space-color": "#0f1a24",
-          "star-intensity": 0.25,
+          "space-color": "#d5dce3",
+          "star-intensity": 0.0,
         });
       } catch {}
 
