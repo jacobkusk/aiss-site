@@ -713,7 +713,7 @@ export default function MapView({
         id: "vessel-predictions",
         type: "line",
         source: "predictions",
-        minzoom: 4,
+        minzoom: 6,
         paint: {
           "line-color": "#ffffff",
           "line-width": 1.5,
