@@ -126,19 +126,22 @@ export default function DualScrubber({ onScrub, onLive, onDateSelect, historical
         <div style={{ position: "relative" }}>
           <button
             onClick={() => dateInputRef.current?.showPicker()}
-            title="Gå til dato"
             style={{
-              background: historicalDate ? "rgba(107,138,255,0.15)" : "rgba(255,255,255,0.06)",
-              border: historicalDate ? "1px solid rgba(107,138,255,0.4)" : "1px solid rgba(255,255,255,0.12)",
+              fontSize: "11px",
+              fontFamily: "var(--font-mono)",
+              fontWeight: 600,
+              color: historicalDate ? "#6b8aff" : "rgba(255,255,255,0.3)",
+              background: historicalDate ? "rgba(107,138,255,0.1)" : "transparent",
+              border: historicalDate ? "1px solid rgba(107,138,255,0.3)" : "1px solid rgba(255,255,255,0.1)",
               borderRadius: "4px",
-              color: historicalDate ? "#6b8aff" : "rgba(255,255,255,0.4)",
+              padding: "2px 8px",
               cursor: "pointer",
-              fontSize: "13px",
-              lineHeight: 1,
-              padding: "3px 5px",
+              whiteSpace: "nowrap",
             }}
           >
-            📅
+            {historicalDate
+              ? new Date(historicalDate).toLocaleDateString([], { day: "numeric", month: "short" })
+              : "dato"}
           </button>
           <input
             ref={dateInputRef}
