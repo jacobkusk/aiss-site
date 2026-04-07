@@ -269,11 +269,26 @@ export default function MapView({
       trackFeatures.push(line as GeoJSON.Feature);
     }
 
-    // Add raw waypoints as line + dots
+    // Add raw waypoints as line — split at teleports (> 50nm between points)
+    const MAX_NM = 50;
+    const nmBetween = (a: [number, number], b: [number, number]) => {
+      const dLat = (b[1] - a[1]) * Math.PI / 180;
+      const dLon = (b[0] - a[0]) * Math.PI / 180;
+      const lat1 = a[1] * Math.PI / 180;
+      const lat2 = b[1] * Math.PI / 180;
+      const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+      return Math.asin(Math.sqrt(s)) * 2 * 3440.065;
+    };
     const rawPts: [number, number][] = filteredWaypoints.map((f: any) => f.geometry.coordinates);
-    if (rawPts.length >= 2) {
-      trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: rawPts } });
+    let seg: [number, number][] = [];
+    for (let i = 0; i < rawPts.length; i++) {
+      if (i > 0 && nmBetween(rawPts[i - 1], rawPts[i]) > MAX_NM) {
+        if (seg.length >= 2) trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: seg } });
+        seg = [];
+      }
+      seg.push(rawPts[i]);
     }
+    if (seg.length >= 2) trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: seg } });
     // Thin waypoint dots for display
     const step = filteredWaypoints.length > 200 ? 10 : filteredWaypoints.length > 50 ? 5 : 1;
     for (let i = 0; i < filteredWaypoints.length; i++) {
