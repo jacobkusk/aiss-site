@@ -42,7 +42,6 @@ export default async function LandingPage() {
           <span style={{ color: "#ffffff" }}>AISs</span>
         </div>
         <div style={{ display: "flex", gap: "32px", alignItems: "center" }}>
-          <Link href="/map" style={{ fontSize: "14px", color: "rgba(255,255,255,0.6)", textDecoration: "none" }}>Live Map</Link>
           <a href="/api" style={{ fontSize: "14px", color: "rgba(255,255,255,0.6)", textDecoration: "none" }}>API</a>
         </div>
       </nav>
@@ -58,7 +57,7 @@ export default async function LandingPage() {
           AISs protocol
         </h1>
         <p style={{ fontSize: "22px", fontWeight: 400, color: "rgba(255,255,255,0.75)", margin: "0 0 16px", lineHeight: 1.4 }}>
-          The open standard <span style={{ fontFamily: "monospace", color: "#6b8aff", fontWeight: 600, marginRight: "0.25em" }}>.aiss</span>for maritime data.
+          The open standard <span style={{ fontFamily: "monospace", color: "#6b8aff", fontWeight: 600 }}>.aiss</span>{" "}for maritime data.
         </p>
         <p style={{ fontSize: "17px", color: "rgba(255,255,255,0.45)", margin: "0 0 44px", lineHeight: 1.7 }}>
           Every vessel · Every voyage · Every signal<br />
