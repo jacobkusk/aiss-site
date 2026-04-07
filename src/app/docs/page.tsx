@@ -163,7 +163,7 @@ export default async function DocsPage() {
         <nav style={{ padding: "0 16px", display: "flex", flexDirection: "column", gap: "2px" }}>
           {NAV.map((item) => (
             <div key={item.id}>
-              <a href={`#${item.id}`} style={{
+              <a href={`#${item.id}`} className="docs-nav-link" style={{
                 display: "block",
                 fontSize: "13px",
                 fontWeight: 500,
@@ -171,16 +171,13 @@ export default async function DocsPage() {
                 textDecoration: "none",
                 padding: "5px 8px",
                 borderRadius: "6px",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "#fff")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.6)")}
-              >
+              }}>
                 {item.label}
               </a>
               {"children" in item && item.children && (
                 <div style={{ paddingLeft: "12px", display: "flex", flexDirection: "column", gap: "1px" }}>
                   {item.children.map((child) => (
-                    <a key={child.id} href={`#${child.id}`} style={{
+                    <a key={child.id} href={`#${child.id}`} className="docs-nav-child" style={{
                       display: "block",
                       fontSize: "12px",
                       fontFamily: "monospace",
@@ -188,10 +185,7 @@ export default async function DocsPage() {
                       textDecoration: "none",
                       padding: "3px 8px",
                       borderRadius: "4px",
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.color = "#6b8aff")}
-                    onMouseLeave={(e) => (e.currentTarget.style.color = "rgba(255,255,255,0.35)")}
-                    >
+                    }}>
                       {child.label}
                     </a>
                   ))}
@@ -200,6 +194,10 @@ export default async function DocsPage() {
             </div>
           ))}
         </nav>
+        <style>{`
+          .docs-nav-link:hover { color: #ffffff !important; }
+          .docs-nav-child:hover { color: #6b8aff !important; }
+        `}</style>
       </aside>
 
       {/* Content */}
