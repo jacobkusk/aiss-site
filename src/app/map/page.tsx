@@ -118,7 +118,7 @@ export default function Home() {
         )}
 
         <TimeScrubber
-          rangeMinutes={360}
+          rangeMinutes={2880}
           onScrub={setScrubMinutesAgo}
           onLive={() => setScrubMinutesAgo(0)}
           zoomLevel={zoomLevel}
