@@ -234,54 +234,62 @@ export default function MapView({
       return;
     }
 
-    const allPoints: [number, number][] = features.map((f: any) => f.geometry.coordinates);
+    // Separate lines (shape) from points (timestamped waypoints)
+    const lines = features.filter((f: any) => f.geometry?.type === "LineString");
+    const waypoints = features.filter((f: any) => f.geometry?.type === "Point" && f.properties?.recorded_at);
 
-    // Ghost line = full track (always visible)
-    if (ghostSrc && allPoints.length >= 2) {
-      ghostSrc.setData({
-        type: "FeatureCollection",
-        features: [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: allPoints } }],
-      });
+    // Ghost line = all lines + raw points connected
+    if (ghostSrc) {
+      const ghostFeatures: GeoJSON.Feature[] = [];
+      for (const line of lines) {
+        ghostFeatures.push(line as GeoJSON.Feature);
+      }
+      // Also connect raw waypoints as a line
+      const rawPts: [number, number][] = waypoints.map((f: any) => f.geometry.coordinates);
+      if (rawPts.length >= 2) {
+        ghostFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: rawPts } });
+      }
+      ghostSrc.setData({ type: "FeatureCollection", features: ghostFeatures.length > 0 ? ghostFeatures : [] });
     }
 
-    // Filter by scrub time
+    // Filter waypoints by scrub time
     const cutoff = scrubRef.current > 0
       ? new Date(Date.now() - scrubRef.current * 60_000).toISOString()
       : null;
 
-    const filtered = cutoff
-      ? features.filter((f: any) => f.properties?.recorded_at && f.properties.recorded_at <= cutoff)
-      : features;
+    const filteredWaypoints = cutoff
+      ? waypoints.filter((f: any) => f.properties?.recorded_at && f.properties.recorded_at <= cutoff)
+      : waypoints;
 
-    const points: [number, number][] = filtered.map((f: any) => f.geometry.coordinates);
+    // Build track: all shape lines + waypoint dots
+    const trackFeatures: GeoJSON.Feature[] = [];
 
-    // Yellow line = track up to scrub point, with thinned waypoint dots
-    if (points.length >= 2) {
-      // Thin dots: show every Nth point based on total count (keep first + last always)
-      const step = points.length > 200 ? 10 : points.length > 50 ? 5 : 1;
-      const thinnedDots = filtered.filter((_: any, i: number) =>
-        i === 0 || i === filtered.length - 1 || i % step === 0
-      );
-      trackSrc.setData({
-        type: "FeatureCollection",
-        features: [
-          { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: points } },
-          ...thinnedDots,
-        ],
-      });
-    } else if (points.length === 1) {
-      trackSrc.setData({ type: "FeatureCollection", features: filtered });
-    } else {
-      trackSrc.setData(empty);
+    // Add shape lines (always show full line shape)
+    for (const line of lines) {
+      trackFeatures.push(line as GeoJSON.Feature);
     }
 
-    // Scrub position marker (ship at scrub time)
-    if (scrubPosSrc && cutoff && filtered.length > 0) {
-      const lastPoint = filtered[filtered.length - 1] as any;
-      // Calculate bearing from previous point to current (actual movement direction)
+    // Add raw waypoints as line + dots
+    const rawPts: [number, number][] = filteredWaypoints.map((f: any) => f.geometry.coordinates);
+    if (rawPts.length >= 2) {
+      trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: rawPts } });
+    }
+    // Thin waypoint dots for display
+    const step = filteredWaypoints.length > 200 ? 10 : filteredWaypoints.length > 50 ? 5 : 1;
+    for (let i = 0; i < filteredWaypoints.length; i++) {
+      if (i === 0 || i === filteredWaypoints.length - 1 || i % step === 0) {
+        trackFeatures.push(filteredWaypoints[i] as GeoJSON.Feature);
+      }
+    }
+
+    trackSrc.setData({ type: "FeatureCollection", features: trackFeatures });
+
+    // Scrub position marker
+    if (scrubPosSrc && cutoff && filteredWaypoints.length > 0) {
+      const lastPoint = filteredWaypoints[filteredWaypoints.length - 1] as any;
       let bearing = lastPoint.properties?.heading ?? 0;
-      if (filtered.length >= 2) {
-        const prev = filtered[filtered.length - 2] as any;
+      if (filteredWaypoints.length >= 2) {
+        const prev = filteredWaypoints[filteredWaypoints.length - 2] as any;
         const [lon1, lat1] = prev.geometry.coordinates;
         const [lon2, lat2] = lastPoint.geometry.coordinates;
         const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -295,10 +303,7 @@ export default function MapView({
         type: "FeatureCollection",
         features: [{
           type: "Feature",
-          properties: {
-            heading: bearing,
-            speed: lastPoint.properties?.speed ?? 0,
-          },
+          properties: { heading: bearing, speed: lastPoint.properties?.speed ?? 0 },
           geometry: lastPoint.geometry,
         }],
       });
