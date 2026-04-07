@@ -608,6 +608,7 @@ export default function MapView({
         id: "vessel-trails",
         type: "line",
         source: "trails",
+        minzoom: 6,
         paint: {
           "line-color": "#6b8aff",
           "line-width": 1.5,
