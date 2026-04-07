@@ -8,9 +8,9 @@ async function getStats() {
       process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
     const [{ count: vessels }, { count: routes }, { count: stations }] = await Promise.all([
-      supabase.from("ais_vessels").select("*", { count: "exact", head: true }),
+      supabase.from("v_all_vessels_live").select("*", { count: "exact", head: true }),
       supabase.from("ais_vessel_routes").select("*", { count: "exact", head: true }),
-      supabase.from("ais_stations").select("*", { count: "exact", head: true }),
+      supabase.from("stations").select("*", { count: "exact", head: true }),
     ]);
     return {
       vessels: vessels ?? 0,
