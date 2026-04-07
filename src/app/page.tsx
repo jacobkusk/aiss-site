@@ -7,16 +7,16 @@ async function getStats() {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
-    const [{ count: vessels }, { count: routes }, { count: stations }] = await Promise.all([
-      supabase.from("v_all_vessels_live").select("*", { count: "exact", head: true }),
-      supabase.from("ais_vessel_routes").select("*", { count: "exact", head: true }),
-      supabase.from("stations").select("*", { count: "exact", head: true }),
-    ]);
-    return {
-      vessels: vessels ?? 0,
-      routes: routes ?? 0,
-      stations: stations ?? 0,
-    };
+    // Use pg_class.reltuples for instant approximate counts — avoids expensive seq scans
+    const { data } = await supabase.rpc("get_table_stats");
+    if (data) {
+      return {
+        vessels: Math.max(0, data.vessels ?? 0),
+        routes: Math.max(0, data.routes ?? 0),
+        stations: Math.max(0, data.stations ?? 0),
+      };
+    }
+    return { vessels: 0, routes: 0, stations: 0 };
   } catch {
     return { vessels: 0, routes: 0, stations: 0 };
   }
