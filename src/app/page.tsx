@@ -54,14 +54,14 @@ export default async function LandingPage() {
         </div>
 
         <h1 style={{ fontSize: "56px", fontWeight: 700, lineHeight: 1.05, margin: "0 0 20px", letterSpacing: "-1.5px" }}>
-          AISs protocol
+          The ocean's memory
         </h1>
         <p style={{ fontSize: "22px", fontWeight: 400, color: "rgba(255,255,255,0.75)", margin: "0 0 16px", lineHeight: 1.4 }}>
           The open standard<span style={{ fontFamily: "monospace", color: "#6b8aff", fontWeight: 600, margin: "0 0.3em" }}>.aiss</span>for maritime data
         </p>
         <p style={{ fontSize: "17px", color: "rgba(255,255,255,0.45)", margin: "0 0 44px", lineHeight: 1.7 }}>
           Every vessel · Every voyage · Every signal<br />
-          Collected · Saved · Shared
+          Signed · Verified · Permanent
         </p>
 
         <div style={{ display: "flex", gap: "16px", justifyContent: "center", flexWrap: "wrap" }}>
@@ -128,7 +128,7 @@ export default async function LandingPage() {
           <div>
             <h2 style={{ fontSize: "24px", fontWeight: 700, margin: "0 0 8px" }}>Have an AIS receiver?</h2>
             <p style={{ fontSize: "15px", color: "rgba(255,255,255,0.45)", margin: 0 }}>
-              Feed your data to AISs and get global coverage in return.
+              Help the ocean remember. Feed your station to AISs — open data, signed and permanent.
             </p>
           </div>
           <Link href="/map" style={{ fontSize: "15px", fontWeight: 600, color: "#fff", background: "linear-gradient(135deg, #4a6aff, #6b8aff)", padding: "14px 32px", borderRadius: "8px", textDecoration: "none", flexShrink: 0 }}>
@@ -141,16 +141,16 @@ export default async function LandingPage() {
       <section style={{ maxWidth: "760px", margin: "0 auto", padding: "80px 24px 64px", position: "relative", zIndex: 10 }}>
         <p style={{ fontSize: "13px", fontWeight: 600, letterSpacing: "1.5px", color: "#6b8aff", textTransform: "uppercase", marginBottom: "24px" }}>Why AISs</p>
         <h2 style={{ fontSize: "32px", fontWeight: 700, lineHeight: 1.2, margin: "0 0 16px", letterSpacing: "-0.5px" }}>
-          Maritime data should be open.
+          The ocean has a witness that cannot be silenced.
         </h2>
-        <p style={{ fontSize: "20px", color: "#6b8aff", fontWeight: 500, margin: "0 0 40px" }}>AISs gives it to everyone.</p>
+        <p style={{ fontSize: "20px", color: "#6b8aff", fontWeight: 500, margin: "0 0 40px" }}>No one can delete what was never secret.</p>
         <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "14px" }}>
           {[
-            "No account needed to explore",
-            "Feed your station, get global data",
-            "Every route stored permanently",
-            ".aiss format: open, portable, yours",
-            "API for developers and researchers",
+            "Every .aiss file signed with Ed25519 — who, what, when",
+            "Content hash proves nothing was changed",
+            "Daily Merkle root proves nothing was removed",
+            "Anchored to Bitcoin — permanent, no one controls it",
+            "Verify offline, no internet needed",
           ].map((item) => (
             <li key={item} style={{ display: "flex", alignItems: "center", gap: "12px", fontSize: "16px", color: "rgba(255,255,255,0.65)" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#6b8aff", flexShrink: 0 }} />
@@ -165,10 +165,10 @@ export default async function LandingPage() {
         <p style={{ fontSize: "13px", fontWeight: 600, letterSpacing: "1.5px", color: "#6b8aff", textTransform: "uppercase", marginBottom: "40px" }}>How it works</p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px" }}>
           {[
-            { n: "1", title: "Stations collect", body: "AIS receivers worldwide feed data to AISs" },
+            { n: "1", title: "Stations witness", body: "AIS receivers worldwide feed signed data to AISs" },
             { n: "2", title: "Routes compress", body: "Positions become permanent vessel routes" },
-            { n: "3", title: "Voyages form", body: "Routes + events = .aiss voyage files" },
-            { n: "4", title: "Everyone benefits", body: "Free API, free data, free tools" },
+            { n: "3", title: "Files are signed", body: "Every .aiss file gets a content hash and Ed25519 signature" },
+            { n: "4", title: "History is sealed", body: "Daily Merkle root anchored to Bitcoin — forever" },
           ].map((step) => (
             <div key={step.n} style={{ borderTop: "2px solid rgba(107,138,255,0.3)", paddingTop: "20px" }}>
               <div style={{ fontSize: "13px", fontWeight: 700, color: "#6b8aff", marginBottom: "8px" }}>{step.n}</div>
@@ -197,7 +197,8 @@ curl https://aiss.network/v1/voyage/by-mmsi/219024587
 
       {/* Footer */}
       <footer style={{ padding: "24px 40px", textAlign: "center", fontSize: "12px", color: "rgba(255,255,255,0.2)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-        An open protocol by <span style={{ color: "#6b8aff", fontWeight: 600 }}>aiss.network</span>
+        <div>An open protocol by <span style={{ color: "#6b8aff", fontWeight: 600 }}>aiss.network</span></div>
+        <div style={{ marginTop: "6px", fontStyle: "italic", opacity: 0.6 }}>&ldquo;Perhaps also to save the sea&rsquo;s soul.&rdquo; — Jacob Viit Kusk, 7. april 2026</div>
       </footer>
     </div>
   );
