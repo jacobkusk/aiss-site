@@ -67,9 +67,9 @@ export default function TimeScrubber({ rangeMinutes, onScrub, onLive, zoomLevel 
         background: "rgba(15, 15, 42, 0.9)",
         backdropFilter: "blur(12px)",
         border: "1px solid rgba(255,255,255,0.1)",
-        minWidth: "380px",
-        maxWidth: "580px",
-        width: "65%",
+        minWidth: "320px",
+        maxWidth: "460px",
+        width: "50%",
       }}
     >
       {/* Zoom presets */}
