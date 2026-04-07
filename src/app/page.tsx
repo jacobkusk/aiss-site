@@ -42,7 +42,7 @@ export default async function LandingPage() {
           <span style={{ color: "#ffffff" }}>AISs</span>
         </div>
         <div style={{ display: "flex", gap: "32px", alignItems: "center" }}>
-          <a href="/api" style={{ fontSize: "14px", color: "rgba(255,255,255,0.6)", textDecoration: "none" }}>API</a>
+          <a href="/docs" style={{ fontSize: "14px", color: "rgba(255,255,255,0.6)", textDecoration: "none" }}>API</a>
         </div>
       </nav>
 
@@ -85,7 +85,7 @@ export default async function LandingPage() {
             icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6b8aff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13 10a4 4 0 0 0-4-4H5a4 4 0 0 0 0 8h4"/><path d="M11 14a4 4 0 0 0 4 4h4a4 4 0 0 0 0-8h-4"/></svg>,
             title: ".aiss format",
             body: "One file per voyage. Vessel identity, compressed route, events, sensor sources — signed and verifiable. Download, share, replay.",
-            link: "/api",
+            link: "/docs",
             linkText: "Format spec →",
           },
           {
@@ -191,7 +191,7 @@ curl https://aiss.network/v1/voyage/by-mmsi/219024587
 → application/aiss+json`}
           </pre>
           <p style={{ margin: "20px 0 24px", fontSize: "15px", color: "rgba(255,255,255,0.5)" }}>Three lines of code. Global maritime data.</p>
-          <a href="/api" style={{ fontSize: "14px", fontWeight: 600, color: "#6b8aff", textDecoration: "none" }}>API documentation →</a>
+          <a href="/docs" style={{ fontSize: "14px", fontWeight: 600, color: "#6b8aff", textDecoration: "none" }}>API documentation →</a>
         </div>
       </section>
 
