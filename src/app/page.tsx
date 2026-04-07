@@ -144,10 +144,10 @@ export default function LandingPage() {
             letterSpacing: "-1px",
           }}
         >
-          AIS shared — a new open
+          AISs — open, saved &{" "}
+          <span style={{ color: "#6b8aff" }}>shared</span> protocol
           <br />
-          protocol for{" "}
-          <span style={{ color: "#6b8aff" }}>maritime data</span>.
+          for AIS and soft AIS
         </h1>
 
         <p
