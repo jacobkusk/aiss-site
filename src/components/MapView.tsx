@@ -269,8 +269,8 @@ export default function MapView({
       trackFeatures.push(line as GeoJSON.Feature);
     }
 
-    // Add raw waypoints as line — split at teleports (> 50nm between points)
-    const MAX_NM = 50;
+    // Add raw waypoints as line — split where implied speed is physically impossible
+    const MAX_KNOTS = 60; // fastest vessels ~50 knots, 60 gives small margin
     const nmBetween = (a: [number, number], b: [number, number]) => {
       const dLat = (b[1] - a[1]) * Math.PI / 180;
       const dLon = (b[0] - a[0]) * Math.PI / 180;
@@ -280,11 +280,17 @@ export default function MapView({
       return Math.asin(Math.sqrt(s)) * 2 * 3440.065;
     };
     const rawPts: [number, number][] = filteredWaypoints.map((f: any) => f.geometry.coordinates);
+    const rawTimes: number[] = filteredWaypoints.map((f: any) => new Date(f.properties?.recorded_at).getTime());
     let seg: [number, number][] = [];
     for (let i = 0; i < rawPts.length; i++) {
-      if (i > 0 && nmBetween(rawPts[i - 1], rawPts[i]) > MAX_NM) {
-        if (seg.length >= 2) trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: seg } });
-        seg = [];
+      if (i > 0) {
+        const nm = nmBetween(rawPts[i - 1], rawPts[i]);
+        const hours = (rawTimes[i] - rawTimes[i - 1]) / 3_600_000;
+        const impliedKnots = hours > 0 ? nm / hours : Infinity;
+        if (impliedKnots > MAX_KNOTS) {
+          if (seg.length >= 2) trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: seg } });
+          seg = [];
+        }
       }
       seg.push(rawPts[i]);
     }
