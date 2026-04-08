@@ -609,11 +609,11 @@ export default function MapView({
         source: "selected-track",
         filter: ["==", ["geometry-type"], "Point"],
         paint: {
-          "circle-radius": 3,
+          "circle-radius": 5,
           "circle-color": "#ffd633",
           "circle-opacity": 0.9,
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "rgba(0,0,0,0.4)",
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": "rgba(0,0,0,0.5)",
         },
       });
 
