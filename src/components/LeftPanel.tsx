@@ -210,7 +210,6 @@ export default function LeftPanel({ onTimeMachineChange, isLive, overlays, onTog
 
       <StatsBar />
       <SearchInput onSelect={() => {}} />
-      <TimeMachine onChange={onTimeMachineChange} isLive={isLive} />
 
       {/* Map Style */}
       <Section title="Map Style">

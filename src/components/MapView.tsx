@@ -428,7 +428,7 @@ export default function MapView({
             type: "Feature" as const,
             geometry: { type: "Point" as const, coordinates: [r[2], r[1]] },
             properties: {
-              mmsi: r[0], name: "", ship_type: r[7], speed: r[3],
+              mmsi: r[0], name: r[11] || "", ship_type: r[7], speed: r[3],
               course: r[4], heading: r[5], nav_status: r[6],
               destination: "", source: "aisstream",
               prev_lat: r[8], prev_lon: r[9],
@@ -967,22 +967,33 @@ export default function MapView({
       });
 
       map.on("mouseenter", "selected-track-dots-hitarea", (e) => {
+        if (hoverLeaveTimer) { clearTimeout(hoverLeaveTimer); hoverLeaveTimer = null; }
         map.getCanvas().style.cursor = "crosshair";
         const f = e.features?.[0];
         if (!f) return;
         const p = f.properties ?? {};
         const t = p.recorded_at ? new Date(p.recorded_at) : null;
-        const timeStr = t ? t.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" }) : "—";
+        const timeStr = t ? (() => {
+          const offsetHours = -t.getTimezoneOffset() / 60;
+          const utcLabel = `UTC${offsetHours >= 0 ? "+" : ""}${offsetHours}`;
+          const time = t.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          const date = t.toLocaleDateString("da-DK", { day: "numeric", month: "short" });
+          return `${time} ${utcLabel} · ${date}`;
+        })() : "—";
         const speed = p.speed != null ? `${Number(p.speed).toFixed(1)} kn` : "—";
-        const heading = p.heading != null && p.heading !== 511 ? `${p.heading}°` : "—";
+        const isRouteMark = p.source === "route_mark";
+        const dirLabel = isRouteMark ? "COG" : "HDG";
+        const dirValue = isRouteMark
+          ? (p.course != null ? `${Number(p.course).toFixed(0)}°` : "—")
+          : (p.heading != null && p.heading !== 511 ? `${p.heading}°` : "—");
         setHoverTooltipRef.current({
           x: e.point.x, y: e.point.y,
           content: (
             <div>
-              <div style={{ fontSize: "13px", fontWeight: 700, color: "#1a2a3a", marginBottom: "4px" }}>{timeStr}</div>
-              <div style={{ display: "flex", gap: "12px" }}>
-                <div><div style={{ fontSize: "8px", color: "#8899aa", letterSpacing: "0.08em", textTransform: "uppercase" }}>SOG</div><div style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: 600, color: "#1a6b9a" }}>{speed}</div></div>
-                <div><div style={{ fontSize: "8px", color: "#8899aa", letterSpacing: "0.08em", textTransform: "uppercase" }}>HDG</div><div style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: 600, color: "#1a6b9a" }}>{heading}</div></div>
+              <div style={{ fontSize: "13px", fontFamily: "var(--font-mono)", fontWeight: 700, color: "#1a2a3a", marginBottom: "6px" }}>{timeStr}</div>
+              <div style={{ display: "flex", gap: "16px" }}>
+                <div><div style={{ fontSize: "9px", color: "#8899aa", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "2px" }}>SOG</div><div style={{ fontSize: "14px", fontFamily: "var(--font-mono)", fontWeight: 700, color: "#1a6b9a" }}>{speed}</div></div>
+                <div><div style={{ fontSize: "9px", color: "#8899aa", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "2px" }}>{dirLabel}</div><div style={{ fontSize: "14px", fontFamily: "var(--font-mono)", fontWeight: 700, color: "#1a6b9a" }}>{dirValue}</div></div>
               </div>
             </div>
           ),
@@ -990,7 +1001,7 @@ export default function MapView({
       });
       map.on("mouseleave", "selected-track-dots-hitarea", () => {
         map.getCanvas().style.cursor = "";
-        setHoverTooltipRef.current(null);
+        hoverLeaveTimer = setTimeout(() => setHoverTooltipRef.current(null), 150);
       });
 
       // Click on empty map — clear selection (fires after all layer-specific handlers)
@@ -1035,9 +1046,13 @@ export default function MapView({
         const sog = p.speed != null ? `${Number(p.speed).toFixed(1)} kn` : "—";
         const cog = p.course != null ? `${Number(p.course).toFixed(0)}°` : "—";
         const updatedAt = p.updated_at ? new Date(p.updated_at) : null;
-        const lastSeen = updatedAt ? updatedAt.toLocaleString("da-DK", {
-          day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"
-        }) : null;
+        const lastSeen = updatedAt ? (() => {
+          const offsetHours = -updatedAt.getTimezoneOffset() / 60;
+          const utcLabel = `UTC${offsetHours >= 0 ? "+" : ""}${offsetHours}`;
+          const timeStr = updatedAt.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          const dateStr = updatedAt.toLocaleDateString("da-DK", { day: "numeric", month: "short" });
+          return `${timeStr} ${utcLabel} · ${dateStr}`;
+        })() : null;
         setHoverTooltipRef.current({
           x: e.point.x, y: e.point.y,
           content: (
@@ -1327,7 +1342,7 @@ export default function MapView({
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "#00e5ff", letterSpacing: "0.08em", marginBottom: "4px" }}>FROM ●</div>
               <div style={{ fontSize: "14px", fontFamily: "var(--font-mono)", fontWeight: 600, color: "#ffffff" }}>
-                {new Date(segmentPanel.a.properties?.recorded_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                {new Date(segmentPanel.a.properties?.recorded_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </div>
               <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.75)", marginTop: "2px" }}>
                 {new Date(segmentPanel.a.properties?.recorded_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
@@ -1336,7 +1351,7 @@ export default function MapView({
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "#ff6b35", letterSpacing: "0.08em", marginBottom: "4px" }}>TO ●</div>
               <div style={{ fontSize: "14px", fontFamily: "var(--font-mono)", fontWeight: 600, color: "#ffffff" }}>
-                {new Date(segmentPanel.b.properties?.recorded_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                {new Date(segmentPanel.b.properties?.recorded_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </div>
               <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.75)", marginTop: "2px" }}>
                 {new Date(segmentPanel.b.properties?.recorded_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
