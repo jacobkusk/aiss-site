@@ -1032,6 +1032,10 @@ export default function MapView({
         const flag = mmsiToFlag(Number(p.mmsi));
         const sog = p.speed != null ? `${Number(p.speed).toFixed(1)} kn` : "—";
         const cog = p.course != null ? `${Number(p.course).toFixed(0)}°` : "—";
+        const updatedAt = p.updated_at ? new Date(p.updated_at) : null;
+        const lastSeen = updatedAt ? updatedAt.toLocaleString("da-DK", {
+          day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"
+        }) : null;
         setHoverTooltipRef.current({
           x: e.point.x, y: e.point.y,
           content: (
@@ -1040,10 +1044,11 @@ export default function MapView({
                 {flag && <span style={{ fontSize: "16px", lineHeight: 1 }}>{flag}</span>}
                 <span style={{ fontSize: "13px", fontWeight: 700, color: "#1a2a3a" }}>{name}</span>
               </div>
-              <div style={{ display: "flex", gap: "14px" }}>
+              <div style={{ display: "flex", gap: "14px", marginBottom: lastSeen ? "6px" : 0 }}>
                 <div><div style={{ fontSize: "8px", color: "#8899aa", letterSpacing: "0.08em", textTransform: "uppercase" }}>SOG</div><div style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: 600, color: "#1a6b9a" }}>{sog}</div></div>
                 <div><div style={{ fontSize: "8px", color: "#8899aa", letterSpacing: "0.08em", textTransform: "uppercase" }}>COG</div><div style={{ fontSize: "12px", fontFamily: "var(--font-mono)", fontWeight: 600, color: "#1a6b9a" }}>{cog}</div></div>
               </div>
+              {lastSeen && <div style={{ fontSize: "10px", color: "#8899aa", fontFamily: "var(--font-mono)" }}>{lastSeen}</div>}
             </div>
           ),
         });
@@ -1052,12 +1057,16 @@ export default function MapView({
         if (!e.features?.[0]) return;
         setHoverTooltipRef.current(prev => prev ? { ...prev, x: e.point.x, y: e.point.y } : prev);
       };
+      let hoverLeaveTimer: ReturnType<typeof setTimeout> | null = null;
       const handleVesselHoverLeave = () => {
         map.getCanvas().style.cursor = "";
-        setHoverTooltipRef.current(null);
+        hoverLeaveTimer = setTimeout(() => setHoverTooltipRef.current(null), 400);
+      };
+      const handleVesselHoverEnterClearTimer = () => {
+        if (hoverLeaveTimer) { clearTimeout(hoverLeaveTimer); hoverLeaveTimer = null; }
       };
       for (const layerId of ["ais-vessels", "ais-vessels-static"]) {
-        map.on("mouseenter", layerId, handleVesselHoverEnter);
+        map.on("mouseenter", layerId, (e) => { handleVesselHoverEnterClearTimer(); handleVesselHoverEnter(e); });
         map.on("mousemove", layerId, handleVesselHoverMove);
         map.on("mouseleave", layerId, handleVesselHoverLeave);
       }
