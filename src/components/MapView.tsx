@@ -70,13 +70,13 @@ function estimateMaxSpeed(shipType: number): number {
   return 25; // unknown / other
 }
 
-function formatDuration(ms: number): string {
+function formatDurationParts(ms: number): { value: string; unit: string } {
   const totalMin = Math.round(ms / 60_000);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  if (h === 0) return `${m} min`;
-  if (m === 0) return `${h} t`;
-  return `${h} t ${m} min`;
+  if (h === 0) return { value: `${m}`, unit: "minutes" };
+  if (m === 0) return { value: `${h}`, unit: "hours" };
+  return { value: `${h}h ${m}`, unit: "minutes" };
 }
 
 // ── Position prediction ───────────────────────────────────────────────────────
@@ -1339,7 +1339,7 @@ export default function MapView({
           {/* Header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
             <span style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.75)", letterSpacing: "0.1em" }}>
-              SEGMENT ANALYSE
+              SEGMENT ANALYSIS
             </span>
             <button
               onClick={() => {
@@ -1359,28 +1359,36 @@ export default function MapView({
           {/* From / To / Duration */}
           <div style={{ display: "flex", gap: "10px", marginBottom: "14px" }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "#00e5ff", letterSpacing: "0.08em", marginBottom: "4px" }}>FRA ●</div>
+              <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "#00e5ff", letterSpacing: "0.08em", marginBottom: "4px" }}>FROM ●</div>
               <div style={{ fontSize: "14px", fontFamily: "var(--font-mono)", fontWeight: 600, color: "#ffffff" }}>
-                {new Date(segmentPanel.a.properties?.recorded_at).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })}
+                {new Date(segmentPanel.a.properties?.recorded_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
               </div>
               <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.75)", marginTop: "2px" }}>
-                {new Date(segmentPanel.a.properties?.recorded_at).toLocaleDateString("da-DK", { day: "2-digit", month: "short" })}
+                {new Date(segmentPanel.a.properties?.recorded_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
               </div>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "#ff6b35", letterSpacing: "0.08em", marginBottom: "4px" }}>TIL ●</div>
+              <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "#ff6b35", letterSpacing: "0.08em", marginBottom: "4px" }}>TO ●</div>
               <div style={{ fontSize: "14px", fontFamily: "var(--font-mono)", fontWeight: 600, color: "#ffffff" }}>
-                {new Date(segmentPanel.b.properties?.recorded_at).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })}
+                {new Date(segmentPanel.b.properties?.recorded_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
               </div>
               <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.75)", marginTop: "2px" }}>
-                {new Date(segmentPanel.b.properties?.recorded_at).toLocaleDateString("da-DK", { day: "2-digit", month: "short" })}
+                {new Date(segmentPanel.b.properties?.recorded_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
               </div>
             </div>
-            <div style={{ flex: 1, textAlign: "right" }}>
-              <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.8)", letterSpacing: "0.08em", marginBottom: "4px" }}>VARIGHED</div>
-              <div style={{ fontSize: "14px", fontFamily: "var(--font-mono)", fontWeight: 600, color: "#ffffff" }}>
-                {formatDuration(segmentPanel.timeMs)}
-              </div>
+            <div style={{ flex: 1 }}>
+              {(() => {
+                const dur = formatDurationParts(segmentPanel.timeMs);
+                return <>
+                  <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.8)", letterSpacing: "0.08em", marginBottom: "4px" }}>DURATION</div>
+                  <div style={{ fontSize: "22px", fontFamily: "var(--font-mono)", fontWeight: 700, color: "#ffffff", lineHeight: 1 }}>
+                    {dur.value}
+                  </div>
+                  <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.75)", marginTop: "3px" }}>
+                    {dur.unit}
+                  </div>
+                </>;
+              })()}
             </div>
           </div>
 
@@ -1390,18 +1398,21 @@ export default function MapView({
           {/* Distance + Speed */}
           <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.8)", letterSpacing: "0.08em", marginBottom: "4px" }}>AFSTAND</div>
+              <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.8)", letterSpacing: "0.08em", marginBottom: "4px" }}>DISTANCE</div>
               <div style={{ fontSize: "22px", fontFamily: "var(--font-mono)", fontWeight: 700, color: "#ffffff", lineHeight: 1 }}>
-                {segmentPanel.distNm} <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.8)", fontWeight: 400 }}>nm</span>
+                {segmentPanel.distNm}
               </div>
-              <div style={{ fontSize: "13px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.75)", marginTop: "3px" }}>
-                {segmentPanel.distKm} km
+              <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.75)", marginTop: "3px" }}>
+                nm / {segmentPanel.distKm} km
               </div>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.8)", letterSpacing: "0.08em", marginBottom: "4px" }}>GNSN. FART</div>
+              <div style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.8)", letterSpacing: "0.08em", marginBottom: "4px" }}>AVG. SPEED</div>
               <div style={{ fontSize: "22px", fontFamily: "var(--font-mono)", fontWeight: 700, color: segmentPanel.anomaly ? "#ff4444" : "#ffffff", lineHeight: 1 }}>
-                {segmentPanel.avgSpeedKn} <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.8)", fontWeight: 400 }}>kn</span>
+                {segmentPanel.avgSpeedKn}
+              </div>
+              <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.75)", marginTop: "3px" }}>
+                knots
               </div>
             </div>
           </div>
@@ -1414,7 +1425,7 @@ export default function MapView({
               </span>
               {segmentPanel.anomaly && (
                 <span style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "#ff4444", letterSpacing: "0.06em", fontWeight: 700 }}>
-                  ⚠ ANOMALI
+                  ⚠ ANOMALY
                 </span>
               )}
             </div>
@@ -1449,7 +1460,7 @@ export default function MapView({
           pointerEvents: "none",
         }}>
           <span style={{ fontSize: "13px", fontFamily: "var(--font-mono)", color: "#00e5ff" }}>
-            ● A valgt — klik et andet waypoint for at måle
+            ● A set — click a second waypoint to measure
           </span>
         </div>
       )}
