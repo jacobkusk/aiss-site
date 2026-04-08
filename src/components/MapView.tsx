@@ -268,11 +268,6 @@ export default function MapView({
   const waypointARef = useRef<any>(null);
   const filteredWaypointsRef = useRef<any[]>([]);
   const selectedShipTypeRef = useRef<number>(0);
-  // Segment panel position — follows the midpoint of the highlighted segment on the map
-  const segmentMidpointGeoRef = useRef<[number, number] | null>(null);
-  const [segmentPanelPx, setSegmentPanelPx] = useState<{ x: number; y: number } | null>(null);
-  const setSegmentPanelPxRef = useRef(setSegmentPanelPx);
-  setSegmentPanelPxRef.current = setSegmentPanelPx;
 
   const onVesselsUpdateRef = useRef(onVesselsUpdate);
   const onVesselClickRef = useRef(onVesselClick);
@@ -914,9 +909,7 @@ export default function MapView({
           selectedShipTypeRef.current = p.ship_type ?? 0;
           // Clear any previous segment analysis when switching vessel
           waypointARef.current = null;
-          segmentMidpointGeoRef.current = null;
           setWaypointASelectedRef.current(false);
-          setSegmentPanelPxRef.current(null);
           segmentPanelSetRef.current(null);
 
           onVesselClickRef.current({
@@ -1035,9 +1028,7 @@ export default function MapView({
           // Anchor panel to midpoint of segment
           const midIdx = Math.floor(segment.length / 2);
           const midCoords = segment[midIdx].geometry.coordinates as [number, number];
-          segmentMidpointGeoRef.current = midCoords;
           const midPx = map.project(midCoords);
-          setSegmentPanelPxRef.current({ x: Math.round(midPx.x), y: Math.round(midPx.y) });
 
           // Show stats panel
           segmentPanelSetRef.current({
@@ -1072,9 +1063,7 @@ export default function MapView({
           (map.getSource("segment-highlight") as maplibregl.GeoJSONSource | undefined)?.setData(empty);
           (map.getSource("waypoint-markers") as maplibregl.GeoJSONSource | undefined)?.setData(empty);
           waypointARef.current = null;
-          segmentMidpointGeoRef.current = null;
           setWaypointASelectedRef.current(false);
-          setSegmentPanelPxRef.current(null);
           segmentPanelSetRef.current(null);
         }
       });
@@ -1102,13 +1091,6 @@ export default function MapView({
       // Track zoom level
       map.on("zoomend", () => {
         onZoomChangeRef.current?.(Math.round(map.getZoom()));
-      });
-
-      // Keep segment panel anchored to map during pan/zoom
-      map.on("move", () => {
-        if (!segmentMidpointGeoRef.current) return;
-        const pt = map.project(segmentMidpointGeoRef.current);
-        setSegmentPanelPxRef.current({ x: Math.round(pt.x), y: Math.round(pt.y) });
       });
 
       // Fetch data
@@ -1344,8 +1326,6 @@ export default function MapView({
             <button
               onClick={() => {
                 setSegmentPanel(null);
-                setSegmentPanelPx(null);
-                segmentMidpointGeoRef.current = null;
                 waypointARef.current = null;
                 setWaypointASelected(false);
                 const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
