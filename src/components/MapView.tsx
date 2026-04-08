@@ -357,7 +357,8 @@ export default function MapView({
       map.setLayoutProperty("openseamap", "visibility", ov.seamarks ? "visible" : "none");
       map.setLayoutProperty("vessel-predictions", "visibility", ov.predictions ? "visible" : "none");
       map.setLayoutProperty("vessel-labels", "visibility", ov.names ? "visible" : "none");
-      map.setFilter("ais-vessels", buildVesselFilter(ov));
+      map.setFilter("ais-vessels", ["all", buildVesselFilter(ov), [">=", ["to-number", ["get", "speed"], 0], 0.5]] as any);
+      map.setFilter("ais-vessels-static", ["all", buildVesselFilter(ov), ["<", ["to-number", ["get", "speed"], 0], 0.5]] as any);
     } catch {
       // Layers not ready
     }
@@ -686,26 +687,38 @@ export default function MapView({
         [40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59], "special",
         "unknown",
       ];
+      // Static vessels — native circle layer (GPU vector, always crisp)
+      map.addLayer({
+        id: "ais-vessels-static",
+        type: "circle",
+        source: "vessels",
+        filter: ["all", buildVesselFilter(DEFAULT_OVERLAYS), ["<", ["to-number", ["get", "speed"], 0], 0.5]] as any,
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 3, 8, 5, 14, 7] as any,
+          "circle-color": ["match", ["to-number", ["get", "ship_type"], 0], ...SHIP_TYPE_COLORS, "#38b038"] as any,
+          "circle-opacity": 0.85,
+          "circle-stroke-width": 1,
+          "circle-stroke-color": "rgba(0,0,0,0.5)",
+        },
+      } as any);
+
+      // Underway vessels — arrow symbol layer
       map.addLayer({
         id: "ais-vessels",
         type: "symbol",
         source: "vessels",
-        filter: buildVesselFilter(DEFAULT_OVERLAYS),
+        filter: ["all", buildVesselFilter(DEFAULT_OVERLAYS), [">=", ["to-number", ["get", "speed"], 0], 0.5]] as any,
         layout: {
-          "icon-image": [
-            "concat",
-            ["case", uw, "tri-", "circ-"],
-            typeCategory,
-          ] as any,
+          "icon-image": ["concat", "tri-", typeCategory] as any,
           "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.7, 8, 1.1, 14, 1.6] as any,
-          "icon-rotate": ["case", uw, ["to-number", ["get", "heading"], 0], 0] as any,
-          "icon-anchor": ["case", uw, "top", "center"] as any,
+          "icon-rotate": ["to-number", ["get", "heading"], 0] as any,
+          "icon-anchor": "top",
           "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
         },
         paint: {
-          "icon-opacity": ["case", uw, 0.95, 0.5] as any,
+          "icon-opacity": 0.95,
         },
       } as any);
 
@@ -810,19 +823,16 @@ export default function MapView({
       });
 
       // Click vessel — show popup + fetch full yellow track with waypoints
-      map.on("click", "ais-vessels", async (e) => {
+      const handleVesselClick = async (e: maplibregl.MapLayerMouseEvent) => {
         if (measureActiveRef.current) return;
-        // Flag so the hitarea handler (fires after) knows a vessel was clicked
         vesselJustClickedRef.current = true;
         requestAnimationFrame(() => { vesselJustClickedRef.current = false; });
         if (e.features?.[0]) {
           const p    = e.features[0].properties;
           const mmsi = p.mmsi;
-          // Gem koordinater FØR async — MapLibre rydder e.features efter event
           const clickLat = (e.features[0].geometry as GeoJSON.Point).coordinates[1];
           const clickLon = (e.features[0].geometry as GeoJSON.Point).coordinates[0];
           selectedShipTypeRef.current = p.ship_type ?? 0;
-          // Clear any previous segment analysis when switching vessel
           waypointARef.current = null;
           waypointBRef.current = null;
           setWaypointASelectedRef.current(false);
@@ -844,7 +854,6 @@ export default function MapView({
 
           onVesselClickRef.current(vesselBase);
 
-          // Fetch vessel track (includes stats)
           const { data } = await supabase.rpc("get_vessel_track", { p_mmsi: mmsi, p_minutes: 2880 });
           if (data) {
             const geojson = typeof data === "string" ? JSON.parse(data) : data;
@@ -854,7 +863,9 @@ export default function MapView({
             onVesselClickRef.current({ ...vesselBase, max_speed: stats.max_speed ?? null, avg_speed_moving: stats.avg_speed_moving ?? null });
           }
         }
-      });
+      };
+      map.on("click", "ais-vessels", handleVesselClick);
+      map.on("click", "ais-vessels-static", handleVesselClick);
 
       // Click on waypoint dot — segment analysis (first click = A, second click = B)
       map.on("click", "selected-track-dots-hitarea", (e) => {
@@ -1013,7 +1024,7 @@ export default function MapView({
       // Hover
       map.on("mouseenter", "clusters", () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", "clusters", () => { map.getCanvas().style.cursor = ""; });
-      map.on("mouseenter", "ais-vessels", (e) => {
+      const handleVesselHoverEnter = (e: maplibregl.MapLayerMouseEvent) => {
         map.getCanvas().style.cursor = "pointer";
         const f = e.features?.[0];
         if (!f) return;
@@ -1037,15 +1048,20 @@ export default function MapView({
             </div>
           ),
         });
-      });
-      map.on("mousemove", "ais-vessels", (e) => {
+      };
+      const handleVesselHoverMove = (e: maplibregl.MapLayerMouseEvent) => {
         if (!e.features?.[0]) return;
         setHoverTooltipRef.current(prev => prev ? { ...prev, x: e.point.x, y: e.point.y } : prev);
-      });
-      map.on("mouseleave", "ais-vessels", () => {
+      };
+      const handleVesselHoverLeave = () => {
         map.getCanvas().style.cursor = "";
         setHoverTooltipRef.current(null);
-      });
+      };
+      for (const layerId of ["ais-vessels", "ais-vessels-static"]) {
+        map.on("mouseenter", layerId, handleVesselHoverEnter);
+        map.on("mousemove", layerId, handleVesselHoverMove);
+        map.on("mouseleave", layerId, handleVesselHoverLeave);
+      }
 
       // Track zoom level
       map.on("zoomend", () => {
@@ -1097,7 +1113,7 @@ export default function MapView({
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
-    const liveLayerIds = ["ais-vessels", "clusters", "cluster-count", "vessel-predictions", "vessel-labels"];
+    const liveLayerIds = ["ais-vessels", "ais-vessels-static", "clusters", "cluster-count", "vessel-predictions", "vessel-labels"];
 
     if (isLive) {
       try {
