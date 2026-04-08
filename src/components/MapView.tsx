@@ -357,7 +357,7 @@ export default function MapView({
       map.setLayoutProperty("openseamap", "visibility", ov.seamarks ? "visible" : "none");
       map.setLayoutProperty("vessel-predictions", "visibility", ov.predictions ? "visible" : "none");
       map.setLayoutProperty("vessel-labels", "visibility", ov.names ? "visible" : "none");
-      map.setFilter("ais-vessels", ["all", buildVesselFilter(ov), [">=", ["to-number", ["get", "speed"], 0], 0.5]] as any);
+      map.setFilter("ais-vessels", buildVesselFilter(ov));
       map.setFilter("ais-vessels-static", ["all", buildVesselFilter(ov), ["<", ["to-number", ["get", "speed"], 0], 0.5]] as any);
     } catch {
       // Layers not ready
@@ -687,7 +687,27 @@ export default function MapView({
         [40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59], "special",
         "unknown",
       ];
-      // Static vessels — native circle layer (GPU vector, always crisp)
+      // All vessels — symbol layer (handles all clicks + arrows for underway)
+      map.addLayer({
+        id: "ais-vessels",
+        type: "symbol",
+        source: "vessels",
+        filter: buildVesselFilter(DEFAULT_OVERLAYS),
+        layout: {
+          "icon-image": ["concat", ["case", uw, "tri-", "circ-"], typeCategory] as any,
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.7, 8, 1.1, 14, 1.6] as any,
+          "icon-rotate": ["case", uw, ["to-number", ["get", "heading"], 0], 0] as any,
+          "icon-anchor": ["case", uw, "top", "center"] as any,
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+        },
+        paint: {
+          "icon-opacity": ["case", uw, 0.95, 0] as any,
+        },
+      } as any);
+
+      // Static vessels — native circle layer on top for crisp rendering (visual only, click falls through to ais-vessels)
       map.addLayer({
         id: "ais-vessels-static",
         type: "circle",
@@ -699,26 +719,6 @@ export default function MapView({
           "circle-opacity": 0.85,
           "circle-stroke-width": 1,
           "circle-stroke-color": "rgba(0,0,0,0.5)",
-        },
-      } as any);
-
-      // Underway vessels — arrow symbol layer
-      map.addLayer({
-        id: "ais-vessels",
-        type: "symbol",
-        source: "vessels",
-        filter: ["all", buildVesselFilter(DEFAULT_OVERLAYS), [">=", ["to-number", ["get", "speed"], 0], 0.5]] as any,
-        layout: {
-          "icon-image": ["concat", "tri-", typeCategory] as any,
-          "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.7, 8, 1.1, 14, 1.6] as any,
-          "icon-rotate": ["to-number", ["get", "heading"], 0] as any,
-          "icon-anchor": "top",
-          "icon-rotation-alignment": "map",
-          "icon-allow-overlap": true,
-          "icon-ignore-placement": true,
-        },
-        paint: {
-          "icon-opacity": 0.95,
         },
       } as any);
 
@@ -865,7 +865,6 @@ export default function MapView({
         }
       };
       map.on("click", "ais-vessels", handleVesselClick);
-      map.on("click", "ais-vessels-static", handleVesselClick);
 
       // Click on waypoint dot — segment analysis (first click = A, second click = B)
       map.on("click", "selected-track-dots-hitarea", (e) => {
