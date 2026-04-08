@@ -577,7 +577,7 @@ export default function MapView({
       });
 
 
-      // Selected vessel track (yellow line with waypoint dots)
+      // Selected vessel track
       map.addLayer({
         id: "selected-track-line",
         type: "line",
@@ -589,6 +589,20 @@ export default function MapView({
           "line-opacity": 0.85,
         },
       });
+
+      // Segment highlight (cyan line) — below waypoint dots so dots stay visible
+      map.addLayer({
+        id: "segment-highlight-line",
+        type: "line",
+        source: "segment-highlight",
+        paint: {
+          "line-color": "#00e5ff",
+          "line-width": 5,
+          "line-opacity": 0.95,
+        },
+      });
+
+      // Waypoint dots on top of the cyan line
       map.addLayer({
         id: "selected-track-dots",
         type: "circle",
@@ -613,18 +627,6 @@ export default function MapView({
           "circle-radius": 12,
           "circle-color": "rgba(0,0,0,0)",
           "circle-opacity": 0,
-        },
-      });
-
-      // Segment highlight (cyan line between two selected waypoints)
-      map.addLayer({
-        id: "segment-highlight-line",
-        type: "line",
-        source: "segment-highlight",
-        paint: {
-          "line-color": "#00e5ff",
-          "line-width": 5,
-          "line-opacity": 0.95,
         },
       });
       // Waypoint A marker (cyan)
