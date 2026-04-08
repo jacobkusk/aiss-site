@@ -706,6 +706,19 @@ export default function MapView({
         },
       });
 
+      // Invisible larger hit area for waypoint clicks (easier to click)
+      map.addLayer({
+        id: "selected-track-dots-hitarea",
+        type: "circle",
+        source: "selected-track",
+        filter: ["==", ["geometry-type"], "Point"],
+        paint: {
+          "circle-radius": 12,
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-opacity": 0,
+        },
+      });
+
       // Segment highlight (cyan line between two selected waypoints)
       map.addLayer({
         id: "segment-highlight-line",
@@ -937,7 +950,7 @@ export default function MapView({
       });
 
       // Click on waypoint dot — segment analysis (first click = A, second click = B)
-      map.on("click", "selected-track-dots", (e) => {
+      map.on("click", "selected-track-dots-hitarea", (e) => {
         if (measureActiveRef.current) return;
         e.originalEvent.stopPropagation();
         const raw = e.features?.[0];
@@ -1038,13 +1051,13 @@ export default function MapView({
         }
       });
 
-      map.on("mouseenter", "selected-track-dots", () => { map.getCanvas().style.cursor = "crosshair"; });
-      map.on("mouseleave", "selected-track-dots", () => { map.getCanvas().style.cursor = ""; });
+      map.on("mouseenter", "selected-track-dots-hitarea", () => { map.getCanvas().style.cursor = "crosshair"; });
+      map.on("mouseleave", "selected-track-dots-hitarea", () => { map.getCanvas().style.cursor = ""; });
 
       // Click on empty map — clear selection
       map.on("click", (e) => {
         if (measureActiveRef.current) return;
-        const vessels = map.queryRenderedFeatures(e.point, { layers: ["ais-vessels", "clusters", "selected-track-dots"] });
+        const vessels = map.queryRenderedFeatures(e.point, { layers: ["ais-vessels", "clusters", "selected-track-dots-hitarea"] });
         if (!vessels.length) {
           // Clear all track layers
           trackFeaturesRef.current = [];
