@@ -483,8 +483,8 @@ export default function MapView({
         ctx.lineTo(1, h);               // bottom left
         ctx.closePath();
         ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.5)";
-        ctx.lineWidth = 0.5;
+        ctx.strokeStyle = "rgba(255,255,255,0.95)";
+        ctx.lineWidth = 1.5;
         ctx.stroke();
         return ctx.getImageData(0, 0, w, h);
       };
