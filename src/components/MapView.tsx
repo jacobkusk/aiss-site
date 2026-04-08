@@ -330,10 +330,12 @@ export default function MapView({
       trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: rawPts } });
     }
 
-    // Waypoint dots
+    // Waypoint dots — skip the last point (most recent = current vessel position, already shown by vessel icon)
     const step = sortedWaypoints.length > 200 ? 10 : sortedWaypoints.length > 50 ? 5 : 1;
+    const lastIdx = sortedWaypoints.length - 1;
     for (let i = 0; i < sortedWaypoints.length; i++) {
-      if (i === 0 || i === sortedWaypoints.length - 1 || i % step === 0) {
+      if (i === lastIdx) continue;
+      if (i === 0 || i % step === 0) {
         trackFeatures.push(sortedWaypoints[i] as GeoJSON.Feature);
       }
     }
@@ -492,10 +494,10 @@ export default function MapView({
         const ctx = c.getContext("2d")!;
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
+        ctx.arc(size / 2, size / 2, size / 2 - 1.5, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.3)";
-        ctx.lineWidth = 0.5;
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1.5;
         ctx.stroke();
         return ctx.getImageData(0, 0, size, size);
       };
@@ -954,7 +956,6 @@ export default function MapView({
         const p = f.properties ?? {};
         const t = p.recorded_at ? new Date(p.recorded_at) : null;
         const timeStr = t ? t.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" }) : "—";
-        const dateStr = t ? t.toLocaleDateString("da-DK", { day: "numeric", month: "short" }) : "";
         const speed = p.speed != null ? `${Number(p.speed).toFixed(1)} kn` : "—";
         const heading = p.heading != null && p.heading !== 511 ? `${p.heading}°` : "—";
         setHoverTooltipRef.current({
