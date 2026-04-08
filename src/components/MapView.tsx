@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, MutableRefObject } from "react";
+import { useEffect, useRef, useState, MutableRefObject } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { supabase } from "@/lib/supabase";
@@ -206,6 +206,13 @@ export default function MapView({
   const fetchVesselsRef = useRef<(() => void) | null>(null);
   const trackFeaturesRef = useRef<GeoJSON.Feature[]>([]);
 
+  // Measurement tool
+  const [measureActive, setMeasureActive] = useState(false);
+  const measureActiveRef = useRef(false);
+  const measurePoints = useRef<[number, number][]>([]);
+  const measureMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const [measureDistance, setMeasureDistance] = useState<{ nm: number; km: number } | null>(null);
+
   const onVesselsUpdateRef = useRef(onVesselsUpdate);
   const onVesselClickRef = useRef(onVesselClick);
   const onRouteCountUpdateRef = useRef(onRouteCountUpdate);
@@ -252,14 +259,18 @@ export default function MapView({
       ghostSrc.setData({ type: "FeatureCollection", features: ghostFeatures.length > 0 ? ghostFeatures : [] });
     }
 
-    // Filter waypoints by scrub time
-    const cutoff = scrubRef.current > 0
-      ? new Date(Date.now() - scrubRef.current * 60_000).toISOString()
-      : null;
+    // Filter waypoints by scrub time — show a 24-hour window ending at the scrub position
+    const TRAIL_MINUTES = 24 * 60; // 24 hours default trail length
+    const cutoffMs = scrubRef.current > 0
+      ? Date.now() - scrubRef.current * 60_000
+      : Date.now();
+    const cutoff = new Date(cutoffMs).toISOString();
+    const windowStart = new Date(cutoffMs - TRAIL_MINUTES * 60_000).toISOString();
 
-    const filteredWaypoints = cutoff
-      ? waypoints.filter((f: any) => f.properties?.recorded_at && f.properties.recorded_at <= cutoff)
-      : waypoints;
+    const filteredWaypoints = waypoints.filter((f: any) => {
+      const t = f.properties?.recorded_at;
+      return t && t >= windowStart && t <= cutoff;
+    });
 
     // Build track: all shape lines + waypoint dots
     const trackFeatures: GeoJSON.Feature[] = [];
@@ -550,6 +561,10 @@ export default function MapView({
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
+      map.addSource("measure-line", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
       map.addSource("openseamap", {
         type: "raster",
         tiles: ["https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png"],
@@ -731,8 +746,65 @@ export default function MapView({
         layout: { visibility: "none" },
       });
 
+      // Measure layers (on top of everything)
+      map.addLayer({
+        id: "measure-line",
+        type: "line",
+        source: "measure-line",
+        paint: { "line-color": "#ffffff", "line-width": 2, "line-dasharray": [4, 2], "line-opacity": 0.9 },
+      });
+
+      // Measure helpers
+      const nmBetweenPts = (a: [number, number], b: [number, number]) => {
+        const dLat = (b[1] - a[1]) * Math.PI / 180;
+        const dLon = (b[0] - a[0]) * Math.PI / 180;
+        const lat1 = a[1] * Math.PI / 180;
+        const lat2 = b[1] * Math.PI / 180;
+        const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+        return Math.asin(Math.sqrt(s)) * 2 * 3440.065;
+      };
+
+      const redrawMeasureLine = () => {
+        const pts = measurePoints.current;
+        const lineSrc = map.getSource("measure-line") as maplibregl.GeoJSONSource | undefined;
+        if (lineSrc) lineSrc.setData({
+          type: "FeatureCollection",
+          features: pts.length >= 2 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: pts } }] : [],
+        });
+        if (pts.length >= 2) {
+          let total = 0;
+          for (let i = 1; i < pts.length; i++) total += nmBetweenPts(pts[i - 1], pts[i]);
+          setMeasureDistance({ nm: Math.round(total * 10) / 10, km: Math.round(total * 1.852 * 10) / 10 });
+        } else {
+          setMeasureDistance(null);
+        }
+      };
+
+      const addMeasureMarker = (lngLat: [number, number], index: number) => {
+        const el = document.createElement("div");
+        el.style.cssText = "width:14px;height:14px;border-radius:50%;background:#2BA8C8;border:2px solid #ffffff;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.4);";
+        const marker = new maplibregl.Marker({ element: el, draggable: true })
+          .setLngLat(lngLat)
+          .addTo(map);
+        marker.on("drag", () => {
+          const { lng, lat } = marker.getLngLat();
+          measurePoints.current[index] = [lng, lat];
+          redrawMeasureLine();
+        });
+        measureMarkersRef.current.push(marker);
+      };
+
+      map.on("click", (e) => {
+        if (!measureActiveRef.current) return;
+        const idx = measurePoints.current.length;
+        measurePoints.current = [...measurePoints.current, [e.lngLat.lng, e.lngLat.lat]];
+        addMeasureMarker([e.lngLat.lng, e.lngLat.lat], idx);
+        redrawMeasureLine();
+      });
+
       // Click vessel — show popup + fetch full yellow track with waypoints
       map.on("click", "ais-vessels", async (e) => {
+        if (measureActiveRef.current) return;
         if (e.features?.[0]) {
           const p = e.features[0].properties;
           const mmsi = p.mmsi;
@@ -762,6 +834,7 @@ export default function MapView({
 
       // Click on empty map — clear selection
       map.on("click", (e) => {
+        if (measureActiveRef.current) return;
         const vessels = map.queryRenderedFeatures(e.point, { layers: ["ais-vessels", "clusters"] });
         if (!vessels.length) {
           // Clear all track layers
@@ -816,6 +889,23 @@ export default function MapView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Measure mode sync
+  useEffect(() => {
+    measureActiveRef.current = measureActive;
+    const map = mapRef.current;
+    if (!map) return;
+    map.getCanvas().style.cursor = measureActive ? "crosshair" : "";
+    if (!measureActive) {
+      measurePoints.current = [];
+      setMeasureDistance(null);
+      measureMarkersRef.current.forEach(m => m.remove());
+      measureMarkersRef.current = [];
+      const lineSrc = map.getSource("measure-line") as maplibregl.GeoJSONSource | undefined;
+      const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+      lineSrc?.setData(empty);
+    }
+  }, [measureActive, mapRef]);
 
   // Toggle projection
   useEffect(() => {
@@ -908,6 +998,86 @@ export default function MapView({
           }}
         >Map</button>
       </div>
+
+      {/* Measure tool button */}
+      <button
+        onClick={() => setMeasureActive(v => !v)}
+        title="Mål afstand"
+        style={{
+          position: "absolute",
+          top: "12px",
+          right: "12px",
+          zIndex: 10,
+          width: "36px",
+          height: "36px",
+          borderRadius: "8px",
+          border: measureActive ? "1px solid rgba(43,168,200,0.6)" : "1px solid rgba(255,255,255,0.15)",
+          background: measureActive ? "rgba(43,168,200,0.25)" : "rgba(30,30,34,0.75)",
+          backdropFilter: "blur(12px)",
+          color: measureActive ? "#2BA8C8" : "rgba(255,255,255,0.7)",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "16px",
+        }}
+      >
+        📏
+      </button>
+
+      {/* Measure distance readout */}
+      {measureActive && (
+        <div style={{
+          position: "absolute",
+          top: "56px",
+          right: "12px",
+          zIndex: 10,
+          background: "rgba(15,15,42,0.95)",
+          backdropFilter: "blur(12px)",
+          border: "1px solid rgba(43,168,200,0.35)",
+          borderRadius: "10px",
+          padding: "10px 14px",
+          minWidth: "150px",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <span style={{ fontSize: "9px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.6)", letterSpacing: "0.08em" }}>
+              AFSTANDSMÅLER
+            </span>
+            <button
+              onClick={() => setMeasureActive(false)}
+              style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)", background: "transparent", border: "none", cursor: "pointer", padding: "0 0 0 8px", lineHeight: 1 }}
+            >✕</button>
+          </div>
+          {measureDistance ? (
+            <>
+              <div style={{ fontSize: "20px", fontFamily: "var(--font-mono)", fontWeight: 700, color: "#ffffff" }}>
+                {measureDistance.nm} <span style={{ fontSize: "12px", color: "rgba(255,255,255,0.7)" }}>nm</span>
+              </div>
+              <div style={{ fontSize: "13px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.6)", marginTop: "3px" }}>
+                {measureDistance.km} km
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: "12px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.55)" }}>
+              Klik på kortet
+            </div>
+          )}
+          {measureDistance && (
+            <button
+              onClick={() => {
+                measurePoints.current = [];
+                measureMarkersRef.current.forEach(m => m.remove());
+                measureMarkersRef.current = [];
+                setMeasureDistance(null);
+                (mapRef.current?.getSource("measure-line") as any)?.setData({ type: "FeatureCollection", features: [] });
+              }}
+              style={{ marginTop: "8px", fontSize: "10px", fontFamily: "var(--font-mono)", color: "rgba(255,255,255,0.45)", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+            >
+              Ryd
+            </button>
+          )}
+        </div>
+      )}
 
     </div>
   );
