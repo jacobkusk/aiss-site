@@ -266,6 +266,7 @@ export default function MapView({
   const setWaypointASelectedRef = useRef(setWaypointASelected);
   setWaypointASelectedRef.current = setWaypointASelected;
   const waypointARef = useRef<any>(null);
+  const waypointBRef = useRef<any>(null);
   const vesselJustClickedRef = useRef(false);
   const trackDotJustClickedRef = useRef(false);
   const clusterJustClickedRef = useRef(false);
@@ -807,6 +808,7 @@ export default function MapView({
           selectedShipTypeRef.current = p.ship_type ?? 0;
           // Clear any previous segment analysis when switching vessel
           waypointARef.current = null;
+          waypointBRef.current = null;
           setWaypointASelectedRef.current(false);
           segmentPanelSetRef.current(null);
 
@@ -859,37 +861,19 @@ export default function MapView({
         const markerSrc = map.getSource("waypoint-markers") as maplibregl.GeoJSONSource | undefined;
         const segSrc = map.getSource("segment-highlight") as maplibregl.GeoJSONSource | undefined;
 
-        if (!waypointARef.current) {
-          // First click — set A, clear previous segment
-          waypointARef.current = f;
-          setWaypointASelectedRef.current(true);
-          markerSrc?.setData({
-            type: "FeatureCollection",
-            features: [{ ...f, properties: { ...f.properties, role: "A" } }],
-          });
-          segSrc?.setData(empty);
-          segmentPanelSetRef.current(null);
-        } else {
-          // Second click — set B, compute segment
-          const wpA = waypointARef.current;
-          const wpB = f;
-          waypointARef.current = null;
-          setWaypointASelectedRef.current(false);
-
+        const computeSegment = (wpA: GeoJSON.Feature, wpB: GeoJSON.Feature) => {
           const tA = wpA.properties?.recorded_at ?? "";
           const tB = wpB.properties?.recorded_at ?? "";
           const [first, second] = tA <= tB ? [wpA, wpB] : [wpB, wpA];
           const tFirst: string = first.properties?.recorded_at;
           const tSecond: string = second.properties?.recorded_at;
 
-          // Get all waypoints in the segment
           const all = filteredWaypointsRef.current;
           const segment = all.filter((w: any) => {
             const t = w.properties?.recorded_at;
             return t && t >= tFirst && t <= tSecond;
           });
 
-          // Cumulative distance along track
           let distNm = 0;
           for (let i = 1; i < segment.length; i++) {
             distNm += nmBetween(
@@ -898,31 +882,18 @@ export default function MapView({
             );
           }
           const distKm = distNm * 1.852;
-
-          // Time elapsed
           const timeMs = new Date(tSecond).getTime() - new Date(tFirst).getTime();
           const timeHrs = timeMs / 3_600_000;
-
-          // Average speed over segment
           const avgSpeedKn = timeHrs > 0 ? distNm / timeHrs : 0;
-
-          // Theoretical max speed based on vessel type
           const maxSpeedKn = estimateMaxSpeed(selectedShipTypeRef.current);
-          const anomaly = avgSpeedKn > maxSpeedKn * 1.15; // 15% tolerance
+          const anomaly = avgSpeedKn > maxSpeedKn * 1.15;
 
-          // Highlight segment on map
           if (segment.length >= 2) {
             segSrc?.setData({
               type: "FeatureCollection",
-              features: [{
-                type: "Feature",
-                properties: {},
-                geometry: { type: "LineString", coordinates: segment.map((w: any) => w.geometry.coordinates) },
-              }],
+              features: [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: segment.map((w: any) => w.geometry.coordinates) } }],
             });
           }
-
-          // Place A + B markers
           markerSrc?.setData({
             type: "FeatureCollection",
             features: [
@@ -930,17 +901,40 @@ export default function MapView({
               { ...second, properties: { ...second.properties, role: "B" } },
             ],
           });
-
-          // Show stats panel
           segmentPanelSetRef.current({
             a: first, b: second,
             distNm: Math.round(distNm * 10) / 10,
             distKm: Math.round(distKm * 10) / 10,
             timeMs,
             avgSpeedKn: Math.round(avgSpeedKn * 10) / 10,
-            maxSpeedKn,
-            anomaly,
+            maxSpeedKn, anomaly,
           });
+        };
+
+        if (!waypointARef.current) {
+          // First click — set A
+          waypointARef.current = f;
+          waypointBRef.current = null;
+          setWaypointASelectedRef.current(true);
+          markerSrc?.setData({ type: "FeatureCollection", features: [{ ...f, properties: { ...f.properties, role: "A" } }] });
+          segSrc?.setData(empty);
+          segmentPanelSetRef.current(null);
+        } else if (!waypointBRef.current) {
+          // Second click — set B, compute segment
+          waypointBRef.current = f;
+          setWaypointASelectedRef.current(false);
+          computeSegment(waypointARef.current, f);
+        } else {
+          // Third+ click — move the closer endpoint and recompute
+          const tNew = new Date(f.properties?.recorded_at ?? 0).getTime();
+          const tA   = new Date(waypointARef.current.properties?.recorded_at ?? 0).getTime();
+          const tB   = new Date(waypointBRef.current.properties?.recorded_at ?? 0).getTime();
+          if (Math.abs(tNew - tA) <= Math.abs(tNew - tB)) {
+            waypointARef.current = f;
+          } else {
+            waypointBRef.current = f;
+          }
+          computeSegment(waypointARef.current, waypointBRef.current);
         }
       });
 
@@ -959,6 +953,7 @@ export default function MapView({
         (map.getSource("segment-highlight") as maplibregl.GeoJSONSource | undefined)?.setData(empty);
         (map.getSource("waypoint-markers") as maplibregl.GeoJSONSource | undefined)?.setData(empty);
         waypointARef.current = null;
+        waypointBRef.current = null;
         setWaypointASelectedRef.current(false);
         segmentPanelSetRef.current(null);
       });
@@ -1224,6 +1219,7 @@ export default function MapView({
               onClick={() => {
                 setSegmentPanel(null);
                 waypointARef.current = null;
+                waypointBRef.current = null;
                 setWaypointASelected(false);
                 const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
                 (mapRef.current?.getSource("segment-highlight") as any)?.setData(empty);
