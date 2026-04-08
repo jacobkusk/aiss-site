@@ -63,23 +63,43 @@ export default function VesselPopup({ vessel, onClose }: Props) {
         </div>
 
         {/* Data grid */}
-        <div className="grid grid-cols-4 gap-3">
-          {[
-            { label: "SOG", value: formatSpeed(vessel.sog) },
-            { label: "COG", value: formatCourse(vessel.cog) },
-            { label: "LAT", value: formatCoord(vessel.lat, "lat") },
-            { label: "LON", value: formatCoord(vessel.lon, "lon") },
-          ].map((item) => (
-            <div key={item.label}>
-              <div className="text-[9px] tracking-wider uppercase" style={{ color: "#8899aa" }}>
-                {item.label}
+        <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              { label: "SOG", value: formatSpeed(vessel.sog) },
+              { label: "COG", value: formatCourse(vessel.cog) },
+            ].map((item) => (
+              <div key={item.label}>
+                <div className="text-[9px] tracking-wider uppercase" style={{ color: "#8899aa" }}>{item.label}</div>
+                <div className="text-xs font-mono font-medium" style={{ color: "#3a5a6a" }}>{item.value}</div>
               </div>
-              <div className="text-xs font-mono font-medium" style={{ color: "#3a5a6a" }}>
-                {item.value}
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: "LAT", value: formatCoord(vessel.lat, "lat") },
+              { label: "LON", value: formatCoord(vessel.lon, "lon") },
+            ].map((item) => (
+              <div key={item.label}>
+                <div className="text-[9px] tracking-wider uppercase" style={{ color: "#8899aa" }}>{item.label}</div>
+                <div className="text-xs font-mono font-medium" style={{ color: "#3a5a6a" }}>{item.value}</div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
+
+        {/* Speed stats */}
+        <div className="mt-3 pt-3 grid grid-cols-2 gap-3" style={{ borderTop: "1px solid rgba(0,0,0,0.07)" }}>
+          <div>
+            <div className="text-[9px] tracking-wider uppercase" style={{ color: "#8899aa" }}>Max SOG</div>
+            <div className="text-xs font-mono font-medium" style={{ color: "#3a5a6a" }}>{vessel.max_speed != null ? `${vessel.max_speed} kn` : "—"}</div>
+          </div>
+          <div>
+            <div className="text-[9px] tracking-wider uppercase" style={{ color: "#8899aa" }}>Avg SOG</div>
+            <div className="text-xs font-mono font-medium" style={{ color: "#3a5a6a" }}>{vessel.avg_speed_moving != null ? `${vessel.avg_speed_moving} kn` : "—"}</div>
+          </div>
+        </div>
+
 
         {/* Waveo link */}
         {isWaveo && vessel.vessel_id && (

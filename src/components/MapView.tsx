@@ -266,6 +266,9 @@ export default function MapView({
   const setWaypointASelectedRef = useRef(setWaypointASelected);
   setWaypointASelectedRef.current = setWaypointASelected;
   const waypointARef = useRef<any>(null);
+  const vesselJustClickedRef = useRef(false);
+  const trackDotJustClickedRef = useRef(false);
+  const clusterJustClickedRef = useRef(false);
   const filteredWaypointsRef = useRef<any[]>([]);
   const selectedShipTypeRef = useRef<number>(0);
 
@@ -285,15 +288,11 @@ export default function MapView({
   function updateTrackDisplay(map: maplibregl.Map) {
     const features = trackFeaturesRef.current;
     const trackSrc = map.getSource("selected-track") as maplibregl.GeoJSONSource | undefined;
-    const ghostSrc = map.getSource("ghost-track") as maplibregl.GeoJSONSource | undefined;
-    const scrubPosSrc = map.getSource("scrub-position") as maplibregl.GeoJSONSource | undefined;
     if (!trackSrc) return;
 
     const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
     if (features.length === 0) {
       trackSrc.setData(empty);
-      if (ghostSrc) ghostSrc.setData(empty);
-      if (scrubPosSrc) scrubPosSrc.setData(empty);
       return;
     }
 
@@ -301,122 +300,42 @@ export default function MapView({
     const lines = features.filter((f: any) => f.geometry?.type === "LineString");
     const waypoints = features.filter((f: any) => f.geometry?.type === "Point" && f.properties?.recorded_at);
 
-    // Ghost line = all lines + raw points connected
-    if (ghostSrc) {
-      const ghostFeatures: GeoJSON.Feature[] = [];
-      for (const line of lines) {
-        ghostFeatures.push(line as GeoJSON.Feature);
-      }
-      // Also connect raw waypoints as a line
-      const rawPts: [number, number][] = waypoints.map((f: any) => f.geometry.coordinates);
-      if (rawPts.length >= 2) {
-        ghostFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: rawPts } });
-      }
-      ghostSrc.setData({ type: "FeatureCollection", features: ghostFeatures.length > 0 ? ghostFeatures : [] });
-    }
+    // Sort waypoints by time — DB order is not guaranteed
+    const sortedWaypoints = [...waypoints].sort((a: any, b: any) =>
+      new Date(a.properties.recorded_at).getTime() - new Date(b.properties.recorded_at).getTime()
+    );
 
-    // Filter waypoints by scrub time — show a 24-hour window ending at the scrub position
-    const TRAIL_MINUTES = 24 * 60; // 24 hours default trail length
-    const cutoffMs = scrubRef.current > 0
-      ? Date.now() - scrubRef.current * 60_000
-      : Date.now();
-    const cutoff = new Date(cutoffMs).toISOString();
-    const windowStart = new Date(cutoffMs - TRAIL_MINUTES * 60_000).toISOString();
-
-    const filteredWaypoints = waypoints.filter((f: any) => {
-      const t = f.properties?.recorded_at;
-      return t && t >= windowStart && t <= cutoff;
-    });
     // Store for segment analysis click handler
-    filteredWaypointsRef.current = filteredWaypoints;
+    filteredWaypointsRef.current = sortedWaypoints;
 
-    // Build track: all shape lines + waypoint dots
+    // Build track: all shape lines + waypoint line + dots
     const trackFeatures: GeoJSON.Feature[] = [];
 
-    // Add shape lines (always show full line shape)
+    // Add shape lines (always show full ais_line shape)
     for (const line of lines) {
       trackFeatures.push(line as GeoJSON.Feature);
     }
 
-    // Add raw waypoints as line — split where implied speed is physically impossible
-    const MAX_KNOTS = 60; // fastest vessels ~50 knots, 60 gives small margin
-    const rawPts: [number, number][] = filteredWaypoints.map((f: any) => f.geometry.coordinates);
-    const rawTimes: number[] = filteredWaypoints.map((f: any) => new Date(f.properties?.recorded_at).getTime());
-    let seg: [number, number][] = [];
-    for (let i = 0; i < rawPts.length; i++) {
-      if (i > 0) {
-        const nm = nmBetween(rawPts[i - 1], rawPts[i]);
-        const hours = (rawTimes[i] - rawTimes[i - 1]) / 3_600_000;
-        const impliedKnots = hours > 0 ? nm / hours : Infinity;
-        if (impliedKnots > MAX_KNOTS) {
-          if (seg.length >= 2) trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: seg } });
-          seg = [];
-        }
-      }
-      seg.push(rawPts[i]);
+    // Connect all waypoints as a single unbroken line in time order
+    const rawPts: [number, number][] = sortedWaypoints.map((f: any) => f.geometry.coordinates);
+    if (rawPts.length >= 2) {
+      trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: rawPts } });
     }
-    if (seg.length >= 2) trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: seg } });
-    // Thin waypoint dots for display
-    const step = filteredWaypoints.length > 200 ? 10 : filteredWaypoints.length > 50 ? 5 : 1;
-    for (let i = 0; i < filteredWaypoints.length; i++) {
-      if (i === 0 || i === filteredWaypoints.length - 1 || i % step === 0) {
-        trackFeatures.push(filteredWaypoints[i] as GeoJSON.Feature);
+
+    // Waypoint dots
+    const step = sortedWaypoints.length > 200 ? 10 : sortedWaypoints.length > 50 ? 5 : 1;
+    for (let i = 0; i < sortedWaypoints.length; i++) {
+      if (i === 0 || i === sortedWaypoints.length - 1 || i % step === 0) {
+        trackFeatures.push(sortedWaypoints[i] as GeoJSON.Feature);
       }
     }
 
     trackSrc.setData({ type: "FeatureCollection", features: trackFeatures });
-
-    // Scrub position marker
-    if (scrubPosSrc && cutoff && filteredWaypoints.length > 0) {
-      const lastPoint = filteredWaypoints[filteredWaypoints.length - 1] as any;
-      let bearing = lastPoint.properties?.heading ?? 0;
-      if (filteredWaypoints.length >= 2) {
-        const prev = filteredWaypoints[filteredWaypoints.length - 2] as any;
-        const [lon1, lat1] = prev.geometry.coordinates;
-        const [lon2, lat2] = lastPoint.geometry.coordinates;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const lat1r = lat1 * Math.PI / 180;
-        const lat2r = lat2 * Math.PI / 180;
-        const y = Math.sin(dLon) * Math.cos(lat2r);
-        const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLon);
-        bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-      }
-      scrubPosSrc.setData({
-        type: "FeatureCollection",
-        features: [{
-          type: "Feature",
-          properties: { heading: bearing, speed: lastPoint.properties?.speed ?? 0 },
-          geometry: lastPoint.geometry,
-        }],
-      });
-    } else if (scrubPosSrc) {
-      scrubPosSrc.setData(empty);
-    }
   }
 
-  // React to scrub changes — update track display AND vessel positions
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    updateTrackDisplay(map);
-
-    if (scrubMinutesAgo <= 0) {
-      // Back to live — resume normal fetch
-      if (fetchVesselsRef.current) fetchVesselsRef.current();
-      return;
-    }
-
-    // Fetch historical vessel positions at scrub time
-    (async () => {
-      const { data, error } = await supabase.rpc("get_vessels_at_time", { p_minutes_ago: scrubMinutesAgo });
-      if (error || !data) return;
-      const geojson: GeoJSON.FeatureCollection = typeof data === "string" ? JSON.parse(data) : data;
-      const src = map.getSource("vessels") as maplibregl.GeoJSONSource | undefined;
-      if (src) src.setData(geojson);
-      const predSrc = map.getSource("predictions") as maplibregl.GeoJSONSource | undefined;
-      if (predSrc) predSrc.setData({ type: "FeatureCollection", features: [] });
-    })();
-  }, [scrubMinutesAgo]);
+  // Scrubber removed — effect kept as no-op placeholder
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _scrubMinutesAgoUnused = scrubMinutesAgo;
 
   // Sync overlay state to map layers
   const prevOverlaysRef = useRef(overlays);
@@ -579,8 +498,6 @@ export default function MapView({
         map.addImage(`circ-${name}`, { width: 10, height: 10, data: new Uint8Array(circ.data.buffer) });
       }
       // Orange scrub marker icon
-      const scrubArrow = makeArrow("#ff9500", 16, 26);
-      map.addImage("tri-scrub", { width: 16, height: 26, data: new Uint8Array(scrubArrow.data.buffer) });
 
       // Sources
       map.addSource("vessels", {
@@ -599,15 +516,7 @@ export default function MapView({
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      map.addSource("ghost-track", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
       map.addSource("selected-track", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      map.addSource("scrub-position", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
@@ -666,19 +575,6 @@ export default function MapView({
         paint: { "text-color": "#ffffff" },
       });
 
-
-      // Ghost track (full route, faded white)
-      map.addLayer({
-        id: "ghost-track-line",
-        type: "line",
-        source: "ghost-track",
-        paint: {
-          "line-color": "#ffffff",
-          "line-width": 1.5,
-          "line-opacity": 0.2,
-          "line-dasharray": [2, 4],
-        },
-      });
 
       // Selected vessel track (yellow line with waypoint dots)
       map.addLayer({
@@ -759,23 +655,6 @@ export default function MapView({
         },
       });
 
-      // Scrub position marker (ship icon at scrub time)
-      map.addLayer({
-        id: "scrub-position",
-        type: "symbol",
-        source: "scrub-position",
-        layout: {
-          "icon-image": "tri-scrub",
-          "icon-size": 1.2,
-          "icon-rotate": ["to-number", ["get", "heading"], 0],
-          "icon-rotation-alignment": "map",
-          "icon-allow-overlap": true,
-        } as any,
-        paint: {
-          "icon-opacity": 1,
-        },
-      });
-
       // Vessel icons (MarineTraffic style)
       // Use match with explicit values — more reliable than range comparisons
       const spd = ["to-number", ["get", "speed"], 0];
@@ -802,7 +681,7 @@ export default function MapView({
             ["case", uw, "tri-", "circ-"],
             typeCategory,
           ] as any,
-          "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.5, 8, 0.8, 14, 1.2] as any,
+          "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.7, 8, 1.1, 14, 1.6] as any,
           "icon-rotate": ["case", uw, ["to-number", ["get", "heading"], 0], 0] as any,
           "icon-rotation-alignment": "map",
           "icon-allow-overlap": true,
@@ -916,35 +795,45 @@ export default function MapView({
       // Click vessel — show popup + fetch full yellow track with waypoints
       map.on("click", "ais-vessels", async (e) => {
         if (measureActiveRef.current) return;
+        // Flag so the hitarea handler (fires after) knows a vessel was clicked
+        vesselJustClickedRef.current = true;
+        requestAnimationFrame(() => { vesselJustClickedRef.current = false; });
         if (e.features?.[0]) {
-          const p = e.features[0].properties;
+          const p    = e.features[0].properties;
           const mmsi = p.mmsi;
+          // Gem koordinater FØR async — MapLibre rydder e.features efter event
+          const clickLat = (e.features[0].geometry as GeoJSON.Point).coordinates[1];
+          const clickLon = (e.features[0].geometry as GeoJSON.Point).coordinates[0];
           selectedShipTypeRef.current = p.ship_type ?? 0;
           // Clear any previous segment analysis when switching vessel
           waypointARef.current = null;
           setWaypointASelectedRef.current(false);
           segmentPanelSetRef.current(null);
 
-          onVesselClickRef.current({
+          const vesselBase = {
             mmsi,
-            ship_name: p.name ?? p.ship_name,
-            lat: (e.features[0].geometry as GeoJSON.Point).coordinates[1],
-            lon: (e.features[0].geometry as GeoJSON.Point).coordinates[0],
-            sog: p.speed ?? p.sog,
-            cog: p.cog ?? p.course ?? null,
-            heading: p.heading,
-            speed: p.speed ?? p.sog,
-            ship_type: p.ship_type,
+            ship_name:   p.name ?? p.ship_name,
+            lat:         clickLat,
+            lon:         clickLon,
+            sog:         p.speed ?? p.sog,
+            cog:         p.cog ?? p.course ?? null,
+            heading:     p.heading,
+            speed:       p.speed ?? p.sog,
+            ship_type:   p.ship_type,
             destination: p.destination,
-            source: p.source,
-          });
+            source:      p.source,
+          };
 
-          // Fetch vessel track (all available history)
+          onVesselClickRef.current(vesselBase);
+
+          // Fetch vessel track (includes stats)
           const { data } = await supabase.rpc("get_vessel_track", { p_mmsi: mmsi, p_minutes: 2880 });
           if (data) {
             const geojson = typeof data === "string" ? JSON.parse(data) : data;
             trackFeaturesRef.current = geojson.features ?? [];
             updateTrackDisplay(map);
+            const stats = geojson.stats ?? {};
+            onVesselClickRef.current({ ...vesselBase, max_speed: stats.max_speed ?? null, avg_speed_moving: stats.avg_speed_moving ?? null });
           }
         }
       });
@@ -952,9 +841,11 @@ export default function MapView({
       // Click on waypoint dot — segment analysis (first click = A, second click = B)
       map.on("click", "selected-track-dots-hitarea", (e) => {
         if (measureActiveRef.current) return;
-        // Skip if clicking on a vessel icon — vessel click takes priority
-        const vesselHit = map.queryRenderedFeatures(e.point, { layers: ["ais-vessels"] });
-        if (vesselHit.length > 0) return;
+        // Skip if a vessel was just clicked (ais-vessels fires first, sets this flag)
+        if (vesselJustClickedRef.current) return;
+        // Flag for the general click handler so it doesn't clear the track
+        trackDotJustClickedRef.current = true;
+        requestAnimationFrame(() => { trackDotJustClickedRef.current = false; });
         const raw = e.features?.[0];
         if (!raw) return;
         // Convert MapLibre feature to plain GeoJSON (MapLibre features have extra internal fields)
@@ -1056,29 +947,25 @@ export default function MapView({
       map.on("mouseenter", "selected-track-dots-hitarea", () => { map.getCanvas().style.cursor = "crosshair"; });
       map.on("mouseleave", "selected-track-dots-hitarea", () => { map.getCanvas().style.cursor = ""; });
 
-      // Click on empty map — clear selection
-      map.on("click", (e) => {
+      // Click on empty map — clear selection (fires after all layer-specific handlers)
+      map.on("click", () => {
         if (measureActiveRef.current) return;
-        const vessels = map.queryRenderedFeatures(e.point, { layers: ["ais-vessels", "clusters", "selected-track-dots-hitarea"] });
-        if (!vessels.length) {
-          // Clear all track layers
-          trackFeaturesRef.current = [];
-          const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-          const trackSrc = map.getSource("selected-track") as maplibregl.GeoJSONSource | undefined;
-          const ghostSrc = map.getSource("ghost-track") as maplibregl.GeoJSONSource | undefined;
-          const scrubPosSrc = map.getSource("scrub-position") as maplibregl.GeoJSONSource | undefined;
-          if (trackSrc) trackSrc.setData(empty);
-          if (ghostSrc) ghostSrc.setData(empty);
-          if (scrubPosSrc) scrubPosSrc.setData(empty);
-          (map.getSource("segment-highlight") as maplibregl.GeoJSONSource | undefined)?.setData(empty);
-          (map.getSource("waypoint-markers") as maplibregl.GeoJSONSource | undefined)?.setData(empty);
-          waypointARef.current = null;
-          setWaypointASelectedRef.current(false);
-          segmentPanelSetRef.current(null);
-        }
+        // If any layer-specific handler fired, don't clear
+        if (vesselJustClickedRef.current || trackDotJustClickedRef.current || clusterJustClickedRef.current) return;
+        // Clear track
+        trackFeaturesRef.current = [];
+        const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+        (map.getSource("selected-track") as maplibregl.GeoJSONSource | undefined)?.setData(empty);
+        (map.getSource("segment-highlight") as maplibregl.GeoJSONSource | undefined)?.setData(empty);
+        (map.getSource("waypoint-markers") as maplibregl.GeoJSONSource | undefined)?.setData(empty);
+        waypointARef.current = null;
+        setWaypointASelectedRef.current(false);
+        segmentPanelSetRef.current(null);
       });
 
       map.on("click", "clusters", (e) => {
+        clusterJustClickedRef.current = true;
+        requestAnimationFrame(() => { clusterJustClickedRef.current = false; });
         const features = map.queryRenderedFeatures(e.point, { layers: ["clusters"] });
         if (!features.length) return;
         const clusterId = features[0].properties.cluster_id;

@@ -16,6 +16,8 @@ export interface Vessel {
   vessel_id?: string | null;
   vessel_prefix?: string | null;
   updated_at?: string;
+  max_speed?: number | null;
+  avg_speed_moving?: number | null;
 }
 
 export interface Route {
