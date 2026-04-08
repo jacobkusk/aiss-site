@@ -1025,11 +1025,6 @@ export default function MapView({
             ],
           });
 
-          // Anchor panel to midpoint of segment
-          const midIdx = Math.floor(segment.length / 2);
-          const midCoords = segment[midIdx].geometry.coordinates as [number, number];
-          const midPx = map.project(midCoords);
-
           // Show stats panel
           segmentPanelSetRef.current({
             a: first, b: second,
