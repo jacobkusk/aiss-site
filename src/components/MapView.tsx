@@ -1315,13 +1315,12 @@ export default function MapView({
         </div>
       )}
 
-      {/* Segment analysis panel — anchored to midpoint of selected segment */}
-      {segmentPanel && segmentPanelPx && (
+      {/* Segment analysis panel — fixed top-right, never overlaps the line */}
+      {segmentPanel && (
         <div style={{
           position: "absolute",
-          left: segmentPanelPx.x + 80,
-          top: segmentPanelPx.y,
-          transform: "translateY(-50%)",
+          top: "56px",
+          right: "56px",
           zIndex: 20,
           background: "rgba(10, 14, 30, 0.97)",
           backdropFilter: "blur(16px)",
@@ -1335,31 +1334,6 @@ export default function MapView({
           boxShadow: "0 6px 40px rgba(0,0,0,0.55)",
           pointerEvents: "auto",
         }}>
-          {/* Connector line + arrow pointing left toward the segment */}
-          <div style={{
-            position: "absolute",
-            left: -80,
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: 72,
-            height: 1,
-            background: segmentPanel.anomaly
-              ? "rgba(255,60,60,0.4)"
-              : "rgba(0,229,255,0.3)",
-          }} />
-          <div style={{
-            position: "absolute",
-            left: -8,
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: 0,
-            height: 0,
-            borderTop: "6px solid transparent",
-            borderBottom: "6px solid transparent",
-            borderRight: segmentPanel.anomaly
-              ? "8px solid rgba(255,60,60,0.7)"
-              : "8px solid rgba(0,229,255,0.5)",
-          }} />
 
           {/* Header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
