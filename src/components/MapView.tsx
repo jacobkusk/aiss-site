@@ -636,6 +636,25 @@ export default function MapView({
         map.addImage(`gap-arrow-${name}`, { width: 9 * PR, height: 15 * PR, data: new Uint8Array(img.data.buffer) }, { pixelRatio: PR });
       }
 
+      // Waypoint direction tick — small thin arrow for heading/COG on each track dot
+      {
+        const w = 5, h = 10;
+        const c = document.createElement("canvas");
+        c.width = w * PR; c.height = h * PR;
+        const ctx = c.getContext("2d")!;
+        ctx.scale(PR, PR);
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.moveTo(w / 2, 0);
+        ctx.lineTo(w, h);
+        ctx.lineTo(w / 2, h * 0.6);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.fill();
+        const imgData = ctx.getImageData(0, 0, w * PR, h * PR);
+        map.addImage("wp-dir", { width: w * PR, height: h * PR, data: new Uint8Array(imgData.data.buffer) }, { pixelRatio: PR });
+      }
+
       // Sources
       map.addSource("land-mask", {
         type: "geojson",
@@ -766,6 +785,41 @@ export default function MapView({
           "circle-opacity": 0.9,
           "circle-stroke-width": 1.5,
           "circle-stroke-color": "rgba(0,0,0,0.5)",
+        },
+      });
+
+      // Waypoint direction arrows — heading/COG tick on each dot
+      map.addLayer({
+        id: "selected-track-dot-dirs",
+        type: "symbol",
+        source: "selected-track",
+        filter: ["all", ["==", ["geometry-type"], "Point"], ["!=", ["get", "type"], "segment_end"]],
+        layout: {
+          "icon-image": "wp-dir",
+          // Prefer heading; fall back to course. 511 = not available.
+          "icon-rotate": [
+            "case",
+            ["all",
+              ["has", "heading"],
+              ["!=", ["to-number", ["get", "heading"], 511], 511],
+              [">", ["to-number", ["get", "heading"], 0], 0],
+            ],
+            ["to-number", ["get", "heading"], 0],
+            ["to-number", ["get", "course"], 0],
+          ] as any,
+          "icon-rotation-alignment": "map",
+          "icon-anchor": "top",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-size": 1.0,
+        },
+        paint: {
+          // Dim when stationary, hide entirely if no speed info
+          "icon-opacity": [
+            "case",
+            [">", ["to-number", ["get", "speed"], 0], 0.3], 0.8,
+            0.25,
+          ] as any,
         },
       });
 
