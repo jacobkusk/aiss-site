@@ -149,6 +149,7 @@ const OVERLAY_LABELS: Record<string, { label: string; color: string }> = {
   fishing: { label: "Fishing", color: "#d4a017" },
   sailing: { label: "Sailing", color: "#2ba8c8" },
   names: { label: "Names", color: "#8ba8b8" },
+  landmask: { label: "Land mask", color: "#e05a3a" },
 };
 
 
@@ -163,6 +164,7 @@ const DEFAULT_OVERLAYS: Overlays = {
   fishing: true,
   sailing: true,
   names: false,
+  landmask: false,
 };
 
 // Ship type color mapping
@@ -361,6 +363,23 @@ export default function MapView({
       map.setLayoutProperty("vessel-labels", "visibility", ov.names ? "visible" : "none");
       map.setFilter("ais-vessels", buildVesselFilter(ov));
       map.setFilter("ais-vessels-static", ["all", buildVesselFilter(ov), ["<", ["to-number", ["get", "speed"], 0], 0.5]] as any);
+
+      // Land mask toggle — hent data første gang det slås til
+      if (ov.landmask) {
+        map.setLayoutProperty("land-mask-fill", "visibility", "visible");
+        const src = map.getSource("land-mask") as maplibregl.GeoJSONSource;
+        const bounds = map.getBounds();
+        supabase.rpc("get_land_layer", {
+          min_lon: bounds.getWest(),
+          min_lat: bounds.getSouth(),
+          max_lon: bounds.getEast(),
+          max_lat: bounds.getNorth(),
+        }).then(({ data }) => {
+          if (data) src.setData(data as any);
+        });
+      } else {
+        map.setLayoutProperty("land-mask-fill", "visibility", "none");
+      }
     } catch {
       // Layers not ready
     }
@@ -519,6 +538,22 @@ export default function MapView({
       // Orange scrub marker icon
 
       // Sources
+      map.addSource("land-mask", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      map.addLayer({
+        id: "land-mask-fill",
+        type: "fill",
+        source: "land-mask",
+        paint: {
+          "fill-color": "#e05a3a",
+          "fill-opacity": 0.35,
+        },
+        layout: { visibility: "none" },
+      });
+
       map.addSource("vessels", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
