@@ -10,6 +10,19 @@ const LAYER_DOTS = "track-dots";
 const LAYER_RING = "track-rings";
 const LAYER_SOG = "track-sog";
 const LAYER_COG = "track-cog";
+const LAYER_ARROW = "track-arrow";
+const ARROW_IMAGE = "track-arrow-img";
+
+function loadArrowImage(map: maplibregl.Map): Promise<void> {
+  return new Promise((resolve) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+      <polyline points="4,20 12,4 20,20" fill="none" stroke="white" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>`;
+    const img = new Image(24, 24);
+    img.onload = () => { map.addImage(ARROW_IMAGE, img, { sdf: true }); resolve(); };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  });
+}
 
 interface WaypointHover { x: number; y: number; mmsi: number | null; speed: number | null; course: number | null; heading: number | null; recorded_at: string | null; lat: number; lon: number; }
 
@@ -30,6 +43,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
 
     const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
     map.addSource(SOURCE, { type: "geojson", data: empty });
+    loadArrowImage(map);
 
     map.addLayer({
       id: LAYER_LINE,
@@ -101,6 +115,23 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
       },
     });
 
+    // Arrow on first/last waypoint — sharp SVG SDF icon rotated to COG
+    map.addLayer({
+      id: LAYER_ARROW,
+      type: "symbol",
+      source: SOURCE,
+      filter: ["==", ["get", "is_endpoint"], true],
+      layout: {
+        "icon-image": ARROW_IMAGE,
+        "icon-size": 1,
+        "icon-rotate": ["get", "course"],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+      paint: { "icon-color": "#2ba8c8", "icon-opacity": 0.9 },
+    });
+
     // Click empty area → clear
     const handleClick = (e: maplibregl.MapMouseEvent) => {
       const hit = map.queryRenderedFeatures(e.point, { layers: ["vessel-dots"] });
@@ -142,7 +173,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
       map.off("mouseleave", LAYER_DOTS, handleWpLeave);
       map.off("mousemove", LAYER_RING, handleWpMove);
       map.off("mouseleave", LAYER_RING, handleWpLeave);
-      [LAYER_COG, LAYER_SOG, LAYER_RING, LAYER_DOTS, LAYER_LINE].forEach((id) => {
+      [LAYER_ARROW, LAYER_COG, LAYER_SOG, LAYER_RING, LAYER_DOTS, LAYER_LINE].forEach((id) => {
         if (map.getLayer(id)) map.removeLayer(id);
       });
       if (map.getSource(SOURCE)) map.removeSource(SOURCE);
@@ -187,6 +218,12 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
           geometry: { type: "LineString", coordinates: lineCoords },
           properties: { type: "line" },
         });
+        // Mark first and last waypoint for arrow icon
+        for (const pt of [points[0], points[points.length - 1]]) {
+          if ((pt.properties as any)?.course != null) {
+            (pt.properties as any).is_endpoint = true;
+          }
+        }
       }
 
       (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData({ type: "FeatureCollection", features });
