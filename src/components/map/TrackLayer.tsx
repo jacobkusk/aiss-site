@@ -21,10 +21,10 @@ function geoOffset(lon: number, lat: number, bearingDeg: number, distDeg: number
 }
 
 function makeChevron(lon: number, lat: number, bearingDeg: number): GeoJSON.Feature {
-  const apex = geoOffset(lon, lat, bearingDeg, 0.00020);
+  const apex = geoOffset(lon, lat, bearingDeg, 0.003);
   const back = (bearingDeg + 180) % 360;
-  const left  = geoOffset(apex[0], apex[1], (back - 35 + 360) % 360, 0.00015);
-  const right = geoOffset(apex[0], apex[1], (back + 35) % 360, 0.00015);
+  const left  = geoOffset(apex[0], apex[1], (back - 30 + 360) % 360, 0.002);
+  const right = geoOffset(apex[0], apex[1], (back + 30) % 360, 0.002);
   return {
     type: "Feature",
     geometry: { type: "LineString", coordinates: [left, apex, right] },
@@ -56,7 +56,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
       id: LAYER_LINE,
       type: "line",
       source: SOURCE,
-      filter: ["==", ["geometry-type"], "LineString"],
+      filter: ["all", ["==", ["geometry-type"], "LineString"], ["!=", ["get", "type"], "chevron"]],
       paint: { "line-color": "#2ba8c8", "line-width": 1.5, "line-opacity": 0.7 },
     });
 
