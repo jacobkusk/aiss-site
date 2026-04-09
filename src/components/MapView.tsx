@@ -55,6 +55,71 @@ function nmBetween(a: [number, number], b: [number, number]): number {
   return Math.asin(Math.sqrt(s)) * 2 * 3440.065;
 }
 
+/** True bearing in degrees (0–360) from a to b */
+function bearingBetween(a: [number, number], b: [number, number]): number {
+  const lat1 = a[1] * Math.PI / 180;
+  const lat2 = b[1] * Math.PI / 180;
+  const dLon = (b[0] - a[0]) * Math.PI / 180;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+}
+
+/**
+ * Build line segments from sorted waypoints using SOG + bearing plausibility.
+ * Breaks the line where the connection would imply an impossible speed,
+ * or where the vessel's reported COG points away from the next waypoint.
+ * Returns an array of coordinate arrays (one per continuous segment).
+ */
+function buildPlausibleSegments(
+  waypoints: GeoJSON.Feature[],
+  maxSpeedKn = 30,
+): [number, number][][] {
+  const segments: [number, number][][] = [];
+  let seg: [number, number][] = [];
+
+  for (let i = 0; i < waypoints.length; i++) {
+    const w = waypoints[i] as any;
+    const coords = w.geometry.coordinates as [number, number];
+
+    if (seg.length > 0) {
+      const prev = waypoints[i - 1] as any;
+      const prevCoords = prev.geometry.coordinates as [number, number];
+      const prevT = new Date(prev.properties?.recorded_at).getTime();
+      const currT = new Date(w.properties?.recorded_at).getTime();
+      const dtHours = (currT - prevT) / 3_600_000;
+      const distNm = nmBetween(prevCoords, coords);
+      const impliedSpeed = dtHours > 0 ? distNm / dtHours : Infinity;
+
+      // Speed plausibility: allow 2× reported SOG or absolute cap
+      const sog: number | null = prev.properties?.speed ?? null;
+      const cap = sog != null ? Math.max(sog * 2, maxSpeedKn) : maxSpeedKn;
+      let plausible = impliedSpeed <= cap;
+
+      // Direction plausibility: only check when vessel is underway and has moved
+      if (plausible && sog != null && sog > 1 && distNm > 0.05) {
+        const cog: number | null = prev.properties?.course ?? null;
+        if (cog != null) {
+          const bearing = bearingBetween(prevCoords, coords);
+          let diff = Math.abs(bearing - cog) % 360;
+          if (diff > 180) diff = 360 - diff;
+          if (diff > 120) plausible = false; // COG pointed the other way
+        }
+      }
+
+      if (!plausible) {
+        if (seg.length >= 2) segments.push(seg);
+        seg = [];
+      }
+    }
+
+    seg.push(coords);
+  }
+
+  if (seg.length >= 2) segments.push(seg);
+  return segments;
+}
+
 /**
  * Theoretical max speed for a vessel by AIS ship_type.
  * Displacement vessels: hull speed ≈ 1.34 × √LWL_ft — without known length
@@ -329,11 +394,13 @@ export default function MapView({
       trackFeatures.push(line as GeoJSON.Feature);
     }
 
-    // Waypoint-connecting line is interpretation — only draw it when there is no DB track line.
-    // When lines[] exists (tracks/ais_string/strings), that IS the truth. Dots are for interaction only.
+    // When no DB track line exists, draw a smart connecting line between tail waypoints.
+    // Uses SOG + COG plausibility: breaks where implied speed is impossible or vessel was
+    // heading the wrong direction — no fake teleportation lines.
     if (lines.length === 0 && sortedWaypoints.length >= 2) {
-      const rawPts: [number, number][] = sortedWaypoints.map((f: any) => f.geometry.coordinates);
-      trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: rawPts } });
+      for (const s of buildPlausibleSegments(sortedWaypoints)) {
+        trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: s } });
+      }
     }
 
     // Waypoint dots — skip the last point (most recent = current vessel position, already shown by vessel icon)
