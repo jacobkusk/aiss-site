@@ -205,7 +205,7 @@ export default function MapPage() {
             value={timeRange}
             onChange={setTimeRange}
             onClose={handleClear}
-            bottom={replayMode ? 158 : 28}
+            bottom={replayMode ? 178 : 28}
           />
         )}
       </div>
