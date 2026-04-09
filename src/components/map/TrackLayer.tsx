@@ -13,6 +13,14 @@ const LAYER_COG = "track-cog";
 const LAYER_ARROW = "track-arrow";
 const ARROW_IMAGE = "track-arrow-img";
 
+function geoOffset(lon: number, lat: number, bearingDeg: number, distDeg: number): [number, number] {
+  const rad = (bearingDeg * Math.PI) / 180;
+  return [
+    lon + distDeg * Math.sin(rad) / Math.cos((lat * Math.PI) / 180),
+    lat + distDeg * Math.cos(rad),
+  ];
+}
+
 function loadArrowImage(map: maplibregl.Map): Promise<void> {
   return new Promise((resolve) => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
@@ -218,11 +226,17 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
           geometry: { type: "LineString", coordinates: lineCoords },
           properties: { type: "line" },
         });
-        // Mark first and last waypoint for arrow icon
+        // Add arrow features just beyond first and last waypoint
         for (const pt of [points[0], points[points.length - 1]]) {
-          if ((pt.properties as any)?.course != null) {
-            (pt.properties as any).is_endpoint = true;
-          }
+          const course = (pt.properties as any)?.course;
+          if (course == null) continue;
+          const [lon, lat] = (pt.geometry as GeoJSON.Point).coordinates;
+          const [olon, olat] = geoOffset(lon, lat, Number(course), 0.0006);
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [olon, olat] },
+            properties: { is_endpoint: true, course: Number(course) },
+          });
         }
       }
 
