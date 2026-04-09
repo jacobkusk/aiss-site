@@ -76,7 +76,7 @@ export const PREDICTION = {
 export const LINE_STYLE = {
   normal:  { width: 1.5, opacity: 0.70, dash: null     as null },
   gap:     { width: 1.5, opacity: 0.75, dash: [5, 3]  as number[] }, // signal loss — color = prediction_color
-  outlier: { width: 1.0, opacity: 0.60, dash: [3, 4]  as number[] }, // bad GPS fix — always red
+  outlier: { width: 2.0, opacity: 0.80, dash: [4, 3]  as number[] }, // bad GPS fix — always red
   skip:    { width: 1.5, opacity: 0.75, dash: [5, 3]  as number[] }, // logical bypass — always green
 };
 

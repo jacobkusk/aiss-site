@@ -71,10 +71,13 @@ function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | n
   });
 
   // Between pass 1 and 2: reset prediction_color on points immediately after
-  // an outlier segment — their SQL score was computed relative to a bad fix
-  // and is meaningless. Also update the outgoing segment color.
+  // an outlier segment — their SQL score was computed relative to a bad fix.
+  // Exception: if the OUTGOING segment from that point is ALSO an outlier,
+  // the point itself is the bad fix — keep its red ring.
   segs.forEach((s, i) => {
     if (!s.isOutlier) return;
+    const outgoingIsAlsoOutlier = i + 1 < segs.length && segs[i + 1].isOutlier;
+    if (outgoingIsAlsoOutlier) return; // this IS the bad point — preserve red ring
     const pt = features[i + 1];
     features[i + 1] = { ...pt, properties: { ...(pt.properties as object), prediction_color: "#00e676" } };
     if (i + 1 < segs.length) segs[i + 1] = { ...segs[i + 1], color: "#00e676" };
