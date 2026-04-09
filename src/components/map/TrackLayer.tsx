@@ -12,6 +12,14 @@ const LAYER_SOG = "track-sog";
 const LAYER_COG = "track-cog";
 const LAYER_CHEVRON = "track-chevron";
 
+// Compute geographic position offset in COG direction (stable in map space)
+function cogOffset(lon: number, lat: number, bearingDeg: number, distDeg = 0.00022): [number, number] {
+  const rad = (bearingDeg * Math.PI) / 180;
+  const newLat = lat + distDeg * Math.cos(rad);
+  const newLon = lon + distDeg * Math.sin(rad) / Math.cos((lat * Math.PI) / 180);
+  return [newLon, newLat];
+}
+
 interface WaypointHover { x: number; y: number; mmsi: number | null; speed: number | null; course: number | null; heading: number | null; recorded_at: string | null; lat: number; lon: number; }
 
 interface Props {
@@ -103,25 +111,43 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
       },
     });
 
-    // Chevron on first waypoint — upward V rotated to COG, offset behind
+    // Draw chevron arrow as SDF image (canvas-based, tintable)
+    const SIZE = 24;
+    const canvas = document.createElement("canvas");
+    canvas.width = SIZE; canvas.height = SIZE;
+    const ctx = canvas.getContext("2d")!;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 3;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(4, 18);
+    ctx.lineTo(12, 6);
+    ctx.lineTo(20, 18);
+    ctx.stroke();
+    const imgData = ctx.getImageData(0, 0, SIZE, SIZE);
+    if (!map.hasImage("chevron-arrow")) {
+      map.addImage("chevron-arrow", imgData, { sdf: true });
+    }
+
+    // Chevron — pre-computed geographic position, icon rotated to bearing
     map.addLayer({
       id: LAYER_CHEVRON,
       type: "symbol",
       source: SOURCE,
-      filter: ["any", ["==", ["get", "is_first"], true], ["==", ["get", "is_last"], true]],
+      filter: ["==", ["get", "type"], "chevron"],
       layout: {
-        "text-field": "∧",
-        "text-size": 28,
-        "text-offset": [0, 1.2],
-        "text-anchor": "center",
-        "text-rotate": ["get", "course"],
-        "text-rotation-alignment": "map",
-        "text-allow-overlap": true,
-        "text-ignore-placement": true,
+        "icon-image": "chevron-arrow",
+        "icon-size": 1.2,
+        "icon-anchor": "center",
+        "icon-rotate": ["get", "bearing"],
+        "icon-rotation-alignment": "map",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
       },
       paint: {
-        "text-color": "#2ba8c8",
-        "text-opacity": 0.9,
+        "icon-color": "#2ba8c8",
+        "icon-opacity": 0.9,
       },
     });
 
@@ -205,12 +231,6 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
         return ta < tb ? -1 : 1;
       });
 
-      // Mark first and last waypoints for chevron indicators
-      if (points.length > 0) {
-        (points[0].properties as any).is_first = true;
-        (points[points.length - 1].properties as any).is_last = true;
-      }
-
       // Build line from the actual waypoints so line and dots always match
       const lineCoords = points.map((f) => (f.geometry as GeoJSON.Point).coordinates);
       const features: GeoJSON.Feature[] = [...points];
@@ -220,6 +240,18 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
           geometry: { type: "LineString", coordinates: lineCoords },
           properties: { type: "line" },
         });
+
+        // Chevrons at geographic offset from first and last waypoint
+        for (const pt of [points[0], points[points.length - 1]]) {
+          const course = (pt.properties as any)?.course;
+          if (course == null) continue;
+          const [lon, lat] = (pt.geometry as GeoJSON.Point).coordinates;
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: cogOffset(lon, lat, Number(course)) },
+            properties: { type: "chevron", bearing: Number(course) },
+          });
+        }
       }
 
       (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData({ type: "FeatureCollection", features });
