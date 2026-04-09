@@ -44,7 +44,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
       id: LAYER_DOTS,
       type: "circle",
       source: SOURCE,
-      filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "mmsi"], ["!", ["has", "speed"]]],
+      filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "mmsi"]],
       paint: { "circle-radius": 3, "circle-color": "#ffffff", "circle-opacity": 0.9 },
     });
 
@@ -112,7 +112,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
       layout: {
         "text-field": "∧",
         "text-size": 28,
-        "text-offset": [0, 0.5],
+        "text-offset": [0, 1.2],
         "text-anchor": "center",
         "text-rotate": ["get", "course"],
         "text-rotation-alignment": "map",
