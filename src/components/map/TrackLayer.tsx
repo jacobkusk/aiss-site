@@ -115,9 +115,9 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
       filter: ["==", ["get", "type"], "gap"],
       paint: {
         "line-color": ["coalesce", ["get", "prediction_color"], "#00e676"],
-        "line-width": 1,
-        "line-opacity": 0.55,
-        "line-dasharray": [4, 4],
+        "line-width": 1.5,
+        "line-opacity": 0.75,
+        "line-dasharray": [5, 3],
       },
     });
 
