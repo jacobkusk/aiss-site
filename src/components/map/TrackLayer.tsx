@@ -47,7 +47,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
       filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "speed"]],
       paint: {
         "circle-radius": 9,
-        "circle-color": "#020a12",
+        "circle-color": "rgba(0,0,0,0)",
         "circle-stroke-width": 1.5,
         "circle-stroke-color": "#00e676",
       },

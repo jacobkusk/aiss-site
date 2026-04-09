@@ -21,13 +21,14 @@ interface Props {
     updated_at: string | null;
   }) => void;
   onHover: (data: HoverData | null) => void;
+  hiddenMmsi?: number | null;
 }
 
 const SOURCE = "vessels";
 const LAYER_DOT = "vessel-dots";
 const LAYER_LABEL = "vessel-labels";
 
-export default function VesselLayer({ onVesselClick, onHover }: Props) {
+export default function VesselLayer({ onVesselClick, onHover, hiddenMmsi }: Props) {
   const map = useMap();
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
@@ -157,6 +158,18 @@ export default function VesselLayer({ onVesselClick, onHover }: Props) {
       if (map.getSource(SOURCE)) map.removeSource(SOURCE);
     };
   }, [map]);
+
+  // Hide the selected vessel's dot so track waypoints render cleanly
+  useEffect(() => {
+    if (!map || !map.getLayer(LAYER_DOT)) return;
+    if (hiddenMmsi != null) {
+      map.setFilter(LAYER_DOT, ["!=", ["get", "mmsi"], hiddenMmsi]);
+      map.setFilter(LAYER_LABEL, ["!=", ["get", "mmsi"], hiddenMmsi]);
+    } else {
+      map.setFilter(LAYER_DOT, null);
+      map.setFilter(LAYER_LABEL, null);
+    }
+  }, [map, hiddenMmsi]);
 
   return null;
 }

@@ -83,7 +83,7 @@ export default function MapPage() {
       <Sidebar />
       <div style={{ position: "relative", flex: 1 }}>
         <Map>
-          <VesselLayer onVesselClick={setSelectedVessel} onHover={handleVesselHover} />
+          <VesselLayer onVesselClick={setSelectedVessel} onHover={handleVesselHover} hiddenMmsi={selectedVessel?.mmsi ?? null} />
           <TrackLayer
             selectedMmsi={selectedVessel?.mmsi ?? null}
             onClear={() => setSelectedVessel(null)}
