@@ -51,6 +51,7 @@ const LAYERS: { key: string; label: string }[] = [
   { key: "predictions", label: "Predictions" },
   { key: "seamarks", label: "Sea Marks" },
   { key: "names", label: "Vessel Names" },
+  { key: "landmask", label: "Land Mask" },
 ];
 
 /* ── Coming soon / locked filters ── */
