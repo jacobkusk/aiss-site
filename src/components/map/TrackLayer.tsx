@@ -23,8 +23,9 @@ interface Props {
   onTimeBounds?: (bounds: [number, number]) => void; // epoch ms [min, max]
 }
 
-const GAP_THRESHOLD     = 300;  // 5 minutes in seconds
-const OUTLIER_SPEED_KN  = 60;   // implied speed above this → outlier
+const GAP_THRESHOLD = 300; // 5 minutes in seconds
+
+interface TrackStats { max_speed: number | null; avg_speed_moving: number | null; }
 
 function distMeters(a: number[], b: number[]): number {
   const dLat = (b[1] - a[1]) * 111320;
@@ -32,7 +33,17 @@ function distMeters(a: number[], b: number[]): number {
   return Math.sqrt(dLat * dLat + dLon * dLon);
 }
 
-function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | null | undefined): GeoJSON.FeatureCollection {
+// Adaptive threshold: 3× vessel max speed or 5× average — minimum 20 kn
+function outlierThreshold(stats: TrackStats | null): number {
+  const max = stats?.max_speed ?? null;
+  const avg = stats?.avg_speed_moving ?? null;
+  const candidates: number[] = [];
+  if (max != null && max > 0) candidates.push(max * 3);
+  if (avg != null && avg > 0) candidates.push(avg * 5);
+  return candidates.length ? Math.max(Math.min(...candidates), 20) : 60;
+}
+
+function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | null | undefined, stats: TrackStats | null): GeoJSON.FeatureCollection {
   let filtered = points;
   if (timeRange) {
     filtered = points.filter((f) => {
@@ -44,8 +55,10 @@ function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | n
 
   const features: GeoJSON.Feature[] = [...filtered];
 
+  const threshold = outlierThreshold(stats);
+
   // Pass 1 — classify each segment
-  interface Seg { isOutlier: boolean; isGap: boolean; color: string; }
+  interface Seg { isOutlier: boolean; isGap: boolean; color: string; impliedKn: number; }
   const segs: Seg[] = filtered.slice(0, -1).map((_, i) => {
     const from  = (filtered[i].geometry as GeoJSON.Point).coordinates;
     const to    = (filtered[i + 1].geometry as GeoJSON.Point).coordinates;
@@ -54,9 +67,19 @@ function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | n
     const dtSec = tB - tA;
     const isGap = dtSec > GAP_THRESHOLD;
     const impliedKn = dtSec > 0 ? (distMeters(from, to) / dtSec) / 0.514444 : 999;
-    const isOutlier = impliedKn > OUTLIER_SPEED_KN;
+    const isOutlier = impliedKn > threshold;
     const color = (filtered[i + 1].properties as any)?.prediction_color ?? (isGap ? "#00e676" : "#2ba8c8");
-    return { isOutlier, isGap, color };
+    return { isOutlier, isGap, color, impliedKn };
+  });
+
+  // Between pass 1 and 2: reset prediction_color on points immediately after
+  // an outlier segment — their SQL score was computed relative to a bad fix
+  // and is meaningless. Also update the outgoing segment color.
+  segs.forEach((s, i) => {
+    if (!s.isOutlier) return;
+    const pt = features[i + 1];
+    features[i + 1] = { ...pt, properties: { ...(pt.properties as object), prediction_color: "#00e676" } };
+    if (i + 1 < segs.length) segs[i + 1] = { ...segs[i + 1], color: "#00e676" };
   });
 
   // Pass 2 — emit line features
@@ -73,18 +96,21 @@ function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | n
     }
   }
 
-  // Pass 3 — skip lines: when a point has outlier segments on BOTH sides,
-  // draw a green dashed line directly between the flanking non-outlier points.
+  // Pass 3 — skip lines: isolated outlier point (both adjacent segs are outliers)
+  // Context check (A): outer flanking segs [i-1] and [i+2] must NOT be outliers —
+  // confirms the surrounding trajectory is normal, not a messy data section.
   for (let i = 0; i < segs.length - 1; i++) {
-    if (segs[i].isOutlier && segs[i + 1].isOutlier) {
-      const skipFrom = (filtered[i].geometry as GeoJSON.Point).coordinates;
-      const skipTo   = (filtered[i + 2].geometry as GeoJSON.Point).coordinates;
-      features.push({
-        type: "Feature",
-        geometry: { type: "LineString", coordinates: [skipFrom, skipTo] },
-        properties: { type: "gap", prediction_color: "#00e676" },
-      });
-    }
+    if (!segs[i].isOutlier || !segs[i + 1].isOutlier) continue;
+    const preOk  = i === 0            || !segs[i - 1].isOutlier;
+    const postOk = i + 2 >= segs.length || !segs[i + 2].isOutlier;
+    if (!preOk || !postOk) continue; // messy section — no skip
+    const skipFrom = (filtered[i].geometry as GeoJSON.Point).coordinates;
+    const skipTo   = (filtered[i + 2].geometry as GeoJSON.Point).coordinates;
+    features.push({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: [skipFrom, skipTo] },
+      properties: { type: "gap", prediction_color: "#00e676" },
+    });
   }
 
   return { type: "FeatureCollection", features };
@@ -93,7 +119,8 @@ function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | n
 export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, onTimeBounds }: Props) {
   const map = useMap();
   const initializedRef = useRef(false);
-  const allPointsRef = useRef<GeoJSON.Feature[]>([]);
+  const allPointsRef   = useRef<GeoJSON.Feature[]>([]);
+  const statsRef       = useRef<TrackStats | null>(null);
 
   useEffect(() => {
     if (!map || initializedRef.current) return;
@@ -284,6 +311,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
       points.forEach((f, i) => { (f.properties as any).seq = i + 1; });
 
       allPointsRef.current = points;
+      statsRef.current = geojson.stats ?? null;
 
       // Report time bounds
       if (points.length >= 2 && onTimeBounds) {
@@ -295,7 +323,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
       }
 
       // Apply current timeRange filter when rendering
-      (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData(buildGeoJSON(points, timeRange));
+      (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData(buildGeoJSON(points, timeRange, statsRef.current));
     }
 
     fetchTrack();
@@ -306,7 +334,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
     if (!map || !map.getSource(SOURCE)) return;
     const points = allPointsRef.current;
     if (!points.length) return;
-    (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData(buildGeoJSON(points, timeRange));
+    (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData(buildGeoJSON(points, timeRange, statsRef.current));
   }, [map, timeRange]);
 
   return null;
