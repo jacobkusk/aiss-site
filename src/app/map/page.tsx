@@ -137,6 +137,7 @@ export default function MapPage() {
               onVesselClick={handleReplayVesselClick}
               onHover={handleVesselHover}
               hiddenMmsi={selectedVessel?.mmsi ?? null}
+              dimOthers={!!selectedVessel}
             />
           ) : (
             <VesselLayer

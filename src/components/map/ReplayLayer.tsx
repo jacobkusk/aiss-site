@@ -30,6 +30,7 @@ interface Props {
   onVesselClick: (v: { mmsi: number; name: string | null; lat: number; lon: number; sog: number | null; cog: number | null; heading: null; updated_at: string | null }) => void;
   onHover: (d: HoverData | null) => void;
   hiddenMmsi?: number | null;
+  dimOthers?: boolean;
 }
 
 function interpolate(points: VesselPoint[], tMs: number): VesselPoint | null {
@@ -57,7 +58,7 @@ function interpolate(points: VesselPoint[], tMs: number): VesselPoint | null {
   };
 }
 
-export default function ReplayLayer({ tracks, currentTime, onVesselClick, onHover, hiddenMmsi }: Props) {
+export default function ReplayLayer({ tracks, currentTime, onVesselClick, onHover, hiddenMmsi, dimOthers }: Props) {
   const map = useMap();
   const initializedRef = useRef(false);
 
@@ -134,6 +135,14 @@ export default function ReplayLayer({ tracks, currentTime, onVesselClick, onHove
       initializedRef.current = false;
     };
   }, [map]);
+
+  // Dim all dots when another vessel is focused
+  useEffect(() => {
+    if (!map || !map.getLayer(LAYER_DOT)) return;
+    map.setPaintProperty(LAYER_DOT, "circle-opacity", dimOthers ? 0.18 : 0.95);
+    map.setPaintProperty(LAYER_DOT, "circle-stroke-opacity", dimOthers ? 0.18 : 1);
+    map.setPaintProperty(LAYER_LABEL, "text-opacity", dimOthers ? 0 : 1);
+  }, [map, dimOthers]);
 
   // Hide selected vessel dot
   useEffect(() => {
