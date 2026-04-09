@@ -1,37 +1,59 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 
 interface Props {
-  minTime: number; // epoch ms
-  maxTime: number; // epoch ms
-  value: [number, number]; // epoch ms [start, end]
+  minTime: number;
+  maxTime: number;
+  value: [number, number];
   onChange: (range: [number, number]) => void;
 }
 
 function fmtTime(epoch: number) {
   return new Date(epoch).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
-
 function fmtDate(epoch: number) {
   return new Date(epoch).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+const STEP = 60_000; // 1 min in ms
+
 export default function TimeSlider({ minTime, maxTime, value, onChange }: Props) {
-  const span = maxTime - minTime || 1;
-
-  const handleStart = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = Number(e.target.value);
-    onChange([Math.min(v, value[1] - 60_000), value[1]]);
-  }, [value, onChange]);
-
-  const handleEnd = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = Number(e.target.value);
-    onChange([value[0], Math.max(v, value[0] + 60_000)]);
-  }, [value, onChange]);
+  const span     = maxTime - minTime || 1;
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef<"start" | "end" | null>(null);
 
   const startPct = ((value[0] - minTime) / span) * 100;
   const endPct   = ((value[1] - minTime) / span) * 100;
+
+  const timeFromX = useCallback((clientX: number) => {
+    const rect = trackRef.current!.getBoundingClientRect();
+    const pct  = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return Math.round((minTime + pct * span) / STEP) * STEP;
+  }, [minTime, span]);
+
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const t         = timeFromX(e.clientX);
+    const dStart    = Math.abs(t - value[0]);
+    const dEnd      = Math.abs(t - value[1]);
+    dragging.current = dStart <= dEnd ? "start" : "end";
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, [timeFromX, value]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return;
+    const t = timeFromX(e.clientX);
+    if (dragging.current === "start") {
+      onChange([Math.min(t, value[1] - STEP), value[1]]);
+    } else {
+      onChange([value[0], Math.max(t, value[0] + STEP)]);
+    }
+  }, [timeFromX, value, onChange]);
+
+  const onPointerUp = useCallback(() => {
+    dragging.current = null;
+  }, []);
 
   const spanDays = (maxTime - minTime) / 86_400_000;
   const showDate = spanDays > 0.9;
@@ -50,22 +72,30 @@ export default function TimeSlider({ minTime, maxTime, value, onChange }: Props)
       zIndex: 10,
       backdropFilter: "blur(6px)",
       fontFamily: "var(--font-mono, monospace)",
+      userSelect: "none",
     }}>
-      {/* Labels row */}
+      {/* Time labels */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
         <span style={{ fontSize: 11, color: "#5a8090" }}>
-          {showDate ? fmtDate(minTime) : ""} {fmtTime(minTime)}
+          {showDate && fmtDate(minTime) + " "}{fmtTime(minTime)}
         </span>
         <span style={{ fontSize: 11, color: "#2ba8c8", letterSpacing: "0.03em" }}>
           {fmtTime(value[0])} – {fmtTime(value[1])}
         </span>
         <span style={{ fontSize: 11, color: "#5a8090" }}>
-          {showDate ? fmtDate(maxTime) : ""} {fmtTime(maxTime)}
+          {showDate && fmtDate(maxTime) + " "}{fmtTime(maxTime)}
         </span>
       </div>
 
-      {/* Track + selection highlight */}
-      <div style={{ position: "relative", height: 20 }}>
+      {/* Interactive track */}
+      <div
+        ref={trackRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        style={{ position: "relative", height: 20, cursor: "pointer" }}
+      >
         {/* Base track */}
         <div style={{
           position: "absolute",
@@ -76,8 +106,9 @@ export default function TimeSlider({ minTime, maxTime, value, onChange }: Props)
           borderRadius: 2,
           background: "rgba(43, 168, 200, 0.15)",
           transform: "translateY(-50%)",
+          pointerEvents: "none",
         }} />
-        {/* Selected range highlight */}
+        {/* Selected range */}
         <div style={{
           position: "absolute",
           top: "50%",
@@ -89,57 +120,33 @@ export default function TimeSlider({ minTime, maxTime, value, onChange }: Props)
           transform: "translateY(-50%)",
           pointerEvents: "none",
         }} />
-
-        {/* Start handle */}
-        <input
-          type="range"
-          className="time-slider-input"
-          min={minTime}
-          max={maxTime}
-          step={60_000}
-          value={value[0]}
-          onChange={handleStart}
-          style={{ zIndex: 1 }}
-        />
-        {/* End handle */}
-        <input
-          type="range"
-          className="time-slider-input"
-          min={minTime}
-          max={maxTime}
-          step={60_000}
-          value={value[1]}
-          onChange={handleEnd}
-          style={{ zIndex: 2 }}
-        />
-
-        {/* Visible thumb: start */}
+        {/* Start thumb */}
         <div style={{
           position: "absolute",
           top: "50%",
           left: `${startPct}%`,
-          width: 12,
-          height: 12,
+          width: 14,
+          height: 14,
           borderRadius: "50%",
           background: "#2ba8c8",
           border: "2px solid #020a12",
           transform: "translate(-50%, -50%)",
           pointerEvents: "none",
-          boxShadow: "0 0 0 1px rgba(43,168,200,0.4)",
+          boxShadow: "0 0 0 2px rgba(43,168,200,0.35)",
         }} />
-        {/* Visible thumb: end */}
+        {/* End thumb */}
         <div style={{
           position: "absolute",
           top: "50%",
           left: `${endPct}%`,
-          width: 12,
-          height: 12,
+          width: 14,
+          height: 14,
           borderRadius: "50%",
           background: "#2ba8c8",
           border: "2px solid #020a12",
           transform: "translate(-50%, -50%)",
           pointerEvents: "none",
-          boxShadow: "0 0 0 1px rgba(43,168,200,0.4)",
+          boxShadow: "0 0 0 2px rgba(43,168,200,0.35)",
         }} />
       </div>
 
