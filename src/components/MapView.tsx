@@ -309,7 +309,7 @@ export default function MapView({
     }
 
     // Separate lines (shape) from points (timestamped waypoints)
-    const lines = features.filter((f: any) => f.geometry?.type === "LineString");
+    const lines = features.filter((f: any) => f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString");
     const waypoints = features.filter((f: any) => f.geometry?.type === "Point" && f.properties?.recorded_at);
 
     // Sort waypoints by time — DB order is not guaranteed
@@ -632,7 +632,7 @@ export default function MapView({
         id: "selected-track-line",
         type: "line",
         source: "selected-track",
-        filter: ["==", ["geometry-type"], "LineString"],
+        filter: ["any", ["==", ["geometry-type"], "LineString"], ["==", ["geometry-type"], "MultiLineString"]],
         paint: {
           "line-color": "#ffd633",
           "line-width": 2.5,
