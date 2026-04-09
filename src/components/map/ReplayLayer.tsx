@@ -2,11 +2,20 @@
 
 import { useEffect, useRef } from "react";
 import { useMap } from "./MapContext";
-import { supabase } from "@/lib/supabase";
 
-const SOURCE = "historical-vessels";
-const LAYER_DOT = "historical-dots";
-const LAYER_LABEL = "historical-labels";
+const SOURCE = "replay";
+const LAYER_DOT = "replay-dots";
+const LAYER_LABEL = "replay-labels";
+
+export interface VesselPoint {
+  t: number;   // epoch seconds
+  lat: number;
+  lon: number;
+  sog: number | null;
+  cog: number | null;
+}
+
+export type TrackMap = Map<number, { name: string | null; points: VesselPoint[] }>;
 
 interface HoverData {
   x: number; y: number;
@@ -16,19 +25,39 @@ interface HoverData {
 }
 
 interface Props {
-  time: Date;
-  windowMinutes?: number;
-  onVesselClick: (vessel: {
-    mmsi: number; name: string | null;
-    lat: number; lon: number;
-    sog: number | null; cog: number | null; heading: number | null;
-    updated_at: string | null;
-  }) => void;
-  onHover: (data: HoverData | null) => void;
+  tracks: TrackMap;
+  currentTime: number; // epoch ms
+  onVesselClick: (v: { mmsi: number; name: string | null; lat: number; lon: number; sog: number | null; cog: number | null; heading: null; updated_at: string | null }) => void;
+  onHover: (d: HoverData | null) => void;
   hiddenMmsi?: number | null;
 }
 
-export default function HistoricalLayer({ time, windowMinutes = 10, onVesselClick, onHover, hiddenMmsi }: Props) {
+function interpolate(points: VesselPoint[], tMs: number): VesselPoint | null {
+  const t = tMs / 1000;
+  if (!points.length) return null;
+  if (t < points[0].t - 600) return null;   // vessel not arrived yet (10 min grace)
+  if (t > points[points.length - 1].t + 600) return null; // vessel gone (10 min grace)
+
+  // Binary search for surrounding points
+  let lo = 0, hi = points.length - 1;
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].t <= t) lo = mid; else hi = mid;
+  }
+  const a = points[lo];
+  const b = points[hi];
+  if (!b || b.t === a.t) return a;
+  const frac = Math.max(0, Math.min(1, (t - a.t) / (b.t - a.t)));
+  return {
+    t,
+    lat: a.lat + frac * (b.lat - a.lat),
+    lon: a.lon + frac * (b.lon - a.lon),
+    sog: a.sog,
+    cog: a.cog,
+  };
+}
+
+export default function ReplayLayer({ tracks, currentTime, onVesselClick, onHover, hiddenMmsi }: Props) {
   const map = useMap();
   const initializedRef = useRef(false);
 
@@ -48,7 +77,7 @@ export default function HistoricalLayer({ time, windowMinutes = 10, onVesselClic
         "circle-color": "#f59e0b",
         "circle-stroke-width": 1.5,
         "circle-stroke-color": "#ffffff",
-        "circle-opacity": 0.9,
+        "circle-opacity": 0.95,
       },
     });
 
@@ -69,19 +98,16 @@ export default function HistoricalLayer({ time, windowMinutes = 10, onVesselClic
       },
     });
 
-    const handleClick = (e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+    const handleClick = (e: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [LAYER_DOT] });
       if (!features.length) return;
       const p = features[0].properties as any;
+      const coords = (features[0].geometry as GeoJSON.Point).coordinates;
       onVesselClick({
-        mmsi: p.mmsi,
-        name: p.name || null,
-        lat: (features[0].geometry as GeoJSON.Point).coordinates[1],
-        lon: (features[0].geometry as GeoJSON.Point).coordinates[0],
-        sog: p.sog ?? null,
-        cog: p.cog ?? null,
-        heading: p.heading ?? null,
-        updated_at: p.recorded_at ?? null,
+        mmsi: p.mmsi, name: p.name || null,
+        lat: coords[1], lon: coords[0],
+        sog: p.sog ?? null, cog: p.cog ?? null,
+        heading: null, updated_at: null,
       });
     };
     map.on("click", LAYER_DOT, handleClick);
@@ -92,13 +118,7 @@ export default function HistoricalLayer({ time, windowMinutes = 10, onVesselClic
       map.getCanvas().style.cursor = "pointer";
       const p = features[0].properties as any;
       const coords = (features[0].geometry as GeoJSON.Point).coordinates;
-      onHover({
-        x: e.originalEvent.clientX, y: e.originalEvent.clientY,
-        mmsi: p.mmsi, name: p.name || null,
-        sog: p.sog ?? null, cog: p.cog ?? null, heading: p.heading ?? null,
-        lat: coords[1], lon: coords[0],
-        updated_at: p.recorded_at ?? null,
-      });
+      onHover({ x: e.originalEvent.clientX, y: e.originalEvent.clientY, mmsi: p.mmsi, name: p.name || null, sog: p.sog ?? null, cog: p.cog ?? null, heading: null, lat: coords[1], lon: coords[0], updated_at: null });
     };
     const handleMouseLeave = () => { onHover(null); map.getCanvas().style.cursor = ""; };
     map.on("mousemove", LAYER_DOT, handleMouseMove);
@@ -127,20 +147,21 @@ export default function HistoricalLayer({ time, windowMinutes = 10, onVesselClic
     }
   }, [map, hiddenMmsi]);
 
-  // Fetch when time changes
+  // Update positions whenever currentTime or tracks changes
   useEffect(() => {
-    if (!map) return;
-    async function fetch() {
-      const { data, error } = await supabase.rpc("get_vessels_at_time", {
-        p_time: time.toISOString(),
-        p_window_minutes: windowMinutes,
+    if (!map || !map.getSource(SOURCE)) return;
+    const features: GeoJSON.Feature[] = [];
+    tracks.forEach((vessel, mmsi) => {
+      const pos = interpolate(vessel.points, currentTime);
+      if (!pos) return;
+      features.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [pos.lon, pos.lat] },
+        properties: { mmsi, name: vessel.name, sog: pos.sog, cog: pos.cog },
       });
-      if (error || !data || !map) return;
-      const geojson = typeof data === "string" ? JSON.parse(data) : data;
-      (map.getSource(SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(geojson);
-    }
-    fetch();
-  }, [map, time, windowMinutes]);
+    });
+    (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData({ type: "FeatureCollection", features });
+  }, [map, tracks, currentTime]);
 
   return null;
 }

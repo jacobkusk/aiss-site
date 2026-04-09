@@ -1,15 +1,15 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import Map from "@/components/map/Map";
+import MapView from "@/components/map/Map";
 import VesselLayer from "@/components/map/VesselLayer";
-import HistoricalLayer from "@/components/map/HistoricalLayer";
+import ReplayLayer, { type TrackMap } from "@/components/map/ReplayLayer";
 import TrackLayer from "@/components/map/TrackLayer";
 import VesselPanel from "@/components/map/VesselPanel";
 import Sidebar from "@/components/map/Sidebar";
 import Tooltip, { type TooltipData } from "@/components/map/Tooltip";
 import TimeSlider from "@/components/map/TimeSlider";
-import TimeMachineControl from "@/components/map/TimeMachineControl";
+import ReplayControl from "@/components/map/ReplayControl";
 
 interface SelectedVessel {
   mmsi: number;
@@ -39,36 +39,29 @@ function fmtTime(iso: string | null) {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-// Format Date → "YYYY-MM-DDTHH:MM" for datetime-local input
-function toDatetimeLocal(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
 export default function MapPage() {
   const [selectedVessel, setSelectedVessel] = useState<SelectedVessel | null>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
 
-  // Time slider
+  // Track time slider
   const [timeBounds, setTimeBounds] = useState<[number, number] | null>(null);
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
-  const focusTimeRef = useRef<number | null>(null); // historical time to auto-center slider on
+  const focusTimeRef = useRef<number | null>(null);
 
-  // Time machine
-  const [histMode, setHistMode] = useState(false);
-  const [histTimeStr, setHistTimeStr] = useState(() => toDatetimeLocal(new Date(Date.now() - 3600_000)));
-  const histTime = new Date(histTimeStr);
+  // Replay mode
+  const [replayMode, setReplayMode] = useState(false);
+  const emptyTracks: TrackMap = new Map();
+  const [replayTracks, setReplayTracks] = useState<TrackMap>(emptyTracks);
+  const [replayStart, setReplayStart] = useState<number | null>(null);
+  const [replayEnd, setReplayEnd] = useState<number | null>(null);
+  const [replayTime, setReplayTime] = useState<number | null>(null);
 
   const handleTimeBounds = useCallback((bounds: [number, number]) => {
     setTimeBounds(bounds);
-    // If we came from a historical click, center the slider around that time
     const focus = focusTimeRef.current;
     if (focus != null) {
-      const WINDOW = 45 * 60_000; // ±45 min around historical click
-      setTimeRange([
-        Math.max(bounds[0], focus - WINDOW),
-        Math.min(bounds[1], focus + WINDOW),
-      ]);
+      const WINDOW = 45 * 60_000;
+      setTimeRange([Math.max(bounds[0], focus - WINDOW), Math.min(bounds[1], focus + WINDOW)]);
       focusTimeRef.current = null;
     } else {
       setTimeRange(bounds);
@@ -120,14 +113,15 @@ export default function MapPage() {
     focusTimeRef.current = null;
   }, []);
 
-  const handleHistVesselClick = useCallback((vessel: SelectedVessel) => {
-    // Store the historical time so slider auto-centers when track loads
-    focusTimeRef.current = histTime.getTime();
+  const handleReplayVesselClick = useCallback((vessel: SelectedVessel) => {
+    if (replayTime != null) focusTimeRef.current = replayTime;
     setSelectedVessel(vessel);
-  }, [histTime]);
+  }, [replayTime]);
 
-  const handleToggleHistMode = useCallback(() => {
-    setHistMode((v) => !v);
+  const handleReplayLoad = useCallback((tracks: TrackMap, start: number, end: number) => {
+    setReplayTracks(tracks);
+    setReplayStart(start);
+    setReplayEnd(end);
     handleClear();
   }, [handleClear]);
 
@@ -135,12 +129,12 @@ export default function MapPage() {
     <div style={{ display: "flex", height: "100%", width: "100%", overflow: "hidden" }}>
       <Sidebar />
       <div style={{ position: "relative", flex: 1 }}>
-        <Map>
-          {histMode ? (
-            <HistoricalLayer
-              time={histTime}
-              windowMinutes={10}
-              onVesselClick={handleHistVesselClick}
+        <MapView>
+          {replayMode ? (
+            <ReplayLayer
+              tracks={replayTracks}
+              currentTime={replayTime ?? replayStart ?? Date.now()}
+              onVesselClick={handleReplayVesselClick}
               onHover={handleVesselHover}
               hiddenMmsi={selectedVessel?.mmsi ?? null}
             />
@@ -158,14 +152,46 @@ export default function MapPage() {
             timeRange={timeRange}
             onTimeBounds={handleTimeBounds}
           />
-        </Map>
+        </MapView>
 
-        <TimeMachineControl
-          active={histMode}
-          time={histTimeStr}
-          onToggle={handleToggleHistMode}
-          onTimeChange={setHistTimeStr}
-        />
+        {/* Replay toggle button */}
+        {!replayMode && (
+          <button
+            onClick={() => { setReplayMode(true); handleClear(); }}
+            title="Replay — se historisk trafik"
+            style={{
+              position: "absolute",
+              top: 12,
+              right: 12,
+              zIndex: 10,
+              background: "rgba(4, 12, 20, 0.88)",
+              border: "1px solid rgba(43, 168, 200, 0.2)",
+              borderRadius: 6,
+              color: "#5a8090",
+              fontSize: 11,
+              padding: "5px 10px",
+              cursor: "pointer",
+              fontFamily: "var(--font-mono, monospace)",
+              letterSpacing: "0.05em",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+          >
+            <span style={{ fontSize: 13 }}>⏱</span> REPLAY
+          </button>
+        )}
+
+        {replayMode && (
+          <ReplayControl
+            onLoad={handleReplayLoad}
+            onTimeChange={setReplayTime}
+            onClose={() => { setReplayMode(false); setReplayTracks(emptyTracks); setReplayTime(null); setReplayStart(null); setReplayEnd(null); handleClear(); }}
+            currentTime={replayTime}
+            start={replayStart}
+            end={replayEnd}
+          />
+        )}
 
         {selectedVessel && (
           <VesselPanel vessel={selectedVessel} onClose={handleClear} />
