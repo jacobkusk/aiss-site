@@ -134,6 +134,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
         "icon-size": 1,
         "icon-rotate": ["get", "course"],
         "icon-rotation-alignment": "map",
+        "icon-offset": [["get", "offset_x"], ["get", "offset_y"]],
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
       },
@@ -226,16 +227,23 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
           geometry: { type: "LineString", coordinates: lineCoords },
           properties: { type: "line" },
         });
-        // Add arrow features just beyond first and last waypoint
-        for (const pt of [points[0], points[points.length - 1]]) {
+        // Arrow features — pixel offset in COG direction (zoom-independent)
+        const D = 20; // px outside the ring
+        for (const [i, pt] of [[0, points[0]], [1, points[points.length - 1]]] as [number, GeoJSON.Feature][]) {
           const course = (pt.properties as any)?.course;
           if (course == null) continue;
-          const [lon, lat] = (pt.geometry as GeoJSON.Point).coordinates;
-          const [olon, olat] = geoOffset(lon, lat, Number(course), 0.0006);
+          const rad = (Number(course) * Math.PI) / 180;
+          // First: behind (reverse COG), Last: ahead (COG direction)
+          const sign = i === 0 ? -1 : 1;
           features.push({
             type: "Feature",
-            geometry: { type: "Point", coordinates: [olon, olat] },
-            properties: { is_endpoint: true, course: Number(course) },
+            geometry: pt.geometry,
+            properties: {
+              is_endpoint: true,
+              course: Number(course),
+              offset_x: sign * Math.sin(rad) * D,
+              offset_y: sign * -Math.cos(rad) * D,
+            },
           });
         }
       }
