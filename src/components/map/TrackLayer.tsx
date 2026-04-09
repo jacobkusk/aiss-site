@@ -34,8 +34,12 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
       id: LAYER_LINE,
       type: "line",
       source: SOURCE,
-      filter: ["==", ["geometry-type"], "LineString"],
-      paint: { "line-color": "#2ba8c8", "line-width": 1.5, "line-opacity": 0.7 },
+      filter: ["==", ["get", "type"], "line"],
+      paint: {
+        "line-color": ["coalesce", ["get", "prediction_color"], "#2ba8c8"],
+        "line-width": 1.5,
+        "line-opacity": 0.7,
+      },
     });
 
     map.addLayer({
@@ -47,7 +51,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
         "circle-radius": 9,
         "circle-color": "rgba(0,0,0,0)",
         "circle-stroke-width": 1.5,
-        "circle-stroke-color": "#00e676",
+        "circle-stroke-color": ["coalesce", ["get", "prediction_color"], "#00e676"],
       },
     });
 
@@ -71,7 +75,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
         "text-anchor": "left",
       },
       paint: {
-        "text-color": "#ffffff",
+        "text-color": ["coalesce", ["get", "prediction_color"], "#00e676"],
         "text-halo-color": "#020a12",
         "text-halo-width": 1.5,
       },
@@ -177,13 +181,18 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
 
       points.forEach((f, i) => { (f.properties as any).seq = i + 1; });
 
-      const lineCoords = points.map((f) => (f.geometry as GeoJSON.Point).coordinates);
       const features: GeoJSON.Feature[] = [...points];
-      if (lineCoords.length >= 2) {
+
+      // Individual segments — each colored by destination waypoint's prediction_color
+      for (let i = 0; i < points.length - 1; i++) {
+        const from = (points[i].geometry as GeoJSON.Point).coordinates;
+        const to   = (points[i + 1].geometry as GeoJSON.Point).coordinates;
+        const color = (points[i + 1].properties as any)?.prediction_color ?? "#2ba8c8";
+        if (color === "#f44336") continue; // red = segment break, don't draw
         features.push({
           type: "Feature",
-          geometry: { type: "LineString", coordinates: lineCoords },
-          properties: { type: "line" },
+          geometry: { type: "LineString", coordinates: [from, to] },
+          properties: { type: "line", prediction_color: color },
         });
       }
 
