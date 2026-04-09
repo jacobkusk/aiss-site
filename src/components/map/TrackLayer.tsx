@@ -18,11 +18,55 @@ interface Props {
   selectedMmsi: number | null;
   onClear: () => void;
   onHover: (data: WaypointHover | null) => void;
+  timeRange?: [number, number] | null; // epoch ms [start, end]
+  onTimeBounds?: (bounds: [number, number]) => void; // epoch ms [min, max]
 }
 
-export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
+const GAP_THRESHOLD = 300; // 5 minutes in seconds
+
+function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | null | undefined): GeoJSON.FeatureCollection {
+  let filtered = points;
+  if (timeRange) {
+    filtered = points.filter((f) => {
+      const t = new Date((f.properties as any)?.recorded_at ?? 0).getTime();
+      return t >= timeRange[0] && t <= timeRange[1];
+    });
+    // Re-assign seq numbers after filtering
+    filtered.forEach((f, i) => { (f.properties as any).seq = i + 1; });
+  }
+
+  const features: GeoJSON.Feature[] = [...filtered];
+
+  for (let i = 0; i < filtered.length - 1; i++) {
+    const from  = (filtered[i].geometry as GeoJSON.Point).coordinates;
+    const to    = (filtered[i + 1].geometry as GeoJSON.Point).coordinates;
+    const tA    = new Date((filtered[i].properties as any)?.recorded_at).getTime() / 1000;
+    const tB    = new Date((filtered[i + 1].properties as any)?.recorded_at).getTime() / 1000;
+    const isGap = (tB - tA) > GAP_THRESHOLD;
+
+    if (isGap) {
+      features.push({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: [from, to] },
+        properties: { type: "gap" },
+      });
+    } else {
+      const color = (filtered[i + 1].properties as any)?.prediction_color ?? "#2ba8c8";
+      features.push({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: [from, to] },
+        properties: { type: "line", prediction_color: color },
+      });
+    }
+  }
+
+  return { type: "FeatureCollection", features };
+}
+
+export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, onTimeBounds }: Props) {
   const map = useMap();
   const initializedRef = useRef(false);
+  const allPointsRef = useRef<GeoJSON.Feature[]>([]);
 
   useEffect(() => {
     if (!map || initializedRef.current) return;
@@ -43,7 +87,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
       },
     });
 
-    // Dashed grey line for signal gaps (>10 min between waypoints)
+    // Dashed grey line for signal gaps (>5 min between waypoints)
     map.addLayer({
       id: LAYER_GAP,
       type: "line",
@@ -167,8 +211,10 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
     };
   }, [map]);
 
+  // Fetch when selectedMmsi changes
   useEffect(() => {
     if (!map || !selectedMmsi) {
+      allPointsRef.current = [];
       if (map && map.getSource(SOURCE)) {
         (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData({ type: "FeatureCollection", features: [] });
       }
@@ -196,38 +242,31 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
 
       points.forEach((f, i) => { (f.properties as any).seq = i + 1; });
 
-      const features: GeoJSON.Feature[] = [...points];
+      allPointsRef.current = points;
 
-      const GAP_THRESHOLD = 300; // 5 minutes in seconds
-
-      for (let i = 0; i < points.length - 1; i++) {
-        const from  = (points[i].geometry as GeoJSON.Point).coordinates;
-        const to    = (points[i + 1].geometry as GeoJSON.Point).coordinates;
-        const tA    = new Date((points[i].properties as any)?.recorded_at).getTime() / 1000;
-        const tB    = new Date((points[i + 1].properties as any)?.recorded_at).getTime() / 1000;
-        const isGap = (tB - tA) > GAP_THRESHOLD;
-
-        if (isGap) {
-          features.push({
-            type: "Feature",
-            geometry: { type: "LineString", coordinates: [from, to] },
-            properties: { type: "gap" },
-          });
-        } else {
-          const color = (points[i + 1].properties as any)?.prediction_color ?? "#2ba8c8";
-          features.push({
-            type: "Feature",
-            geometry: { type: "LineString", coordinates: [from, to] },
-            properties: { type: "line", prediction_color: color },
-          });
+      // Report time bounds
+      if (points.length >= 2 && onTimeBounds) {
+        const tFirst = new Date((points[0].properties as any)?.recorded_at).getTime();
+        const tLast  = new Date((points[points.length - 1].properties as any)?.recorded_at).getTime();
+        if (!isNaN(tFirst) && !isNaN(tLast)) {
+          onTimeBounds([tFirst, tLast]);
         }
       }
 
-      (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData({ type: "FeatureCollection", features });
+      // Apply current timeRange filter when rendering
+      (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData(buildGeoJSON(points, timeRange));
     }
 
     fetchTrack();
   }, [map, selectedMmsi]);
+
+  // Re-filter when timeRange changes (without re-fetching)
+  useEffect(() => {
+    if (!map || !map.getSource(SOURCE)) return;
+    const points = allPointsRef.current;
+    if (!points.length) return;
+    (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData(buildGeoJSON(points, timeRange));
+  }, [map, timeRange]);
 
   return null;
 }

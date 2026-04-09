@@ -7,6 +7,7 @@ import TrackLayer from "@/components/map/TrackLayer";
 import VesselPanel from "@/components/map/VesselPanel";
 import Sidebar from "@/components/map/Sidebar";
 import Tooltip, { type TooltipData } from "@/components/map/Tooltip";
+import TimeSlider from "@/components/map/TimeSlider";
 
 interface SelectedVessel {
   mmsi: number;
@@ -39,6 +40,15 @@ function fmtTime(iso: string | null) {
 export default function MapPage() {
   const [selectedVessel, setSelectedVessel] = useState<SelectedVessel | null>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
+
+  // Time slider state
+  const [timeBounds, setTimeBounds] = useState<[number, number] | null>(null);
+  const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
+
+  const handleTimeBounds = useCallback((bounds: [number, number]) => {
+    setTimeBounds(bounds);
+    setTimeRange(bounds); // default: show everything
+  }, []);
 
   const handleVesselHover = useCallback((d: Parameters<React.ComponentProps<typeof VesselLayer>["onHover"]>[0]) => {
     if (!d) { setHover(null); return; }
@@ -78,6 +88,12 @@ export default function MapPage() {
     });
   }, [selectedVessel]);
 
+  const handleClear = useCallback(() => {
+    setSelectedVessel(null);
+    setTimeBounds(null);
+    setTimeRange(null);
+  }, []);
+
   return (
     <div style={{ display: "flex", height: "100%", width: "100%", overflow: "hidden" }}>
       <Sidebar />
@@ -86,14 +102,24 @@ export default function MapPage() {
           <VesselLayer onVesselClick={setSelectedVessel} onHover={handleVesselHover} hiddenMmsi={selectedVessel?.mmsi ?? null} />
           <TrackLayer
             selectedMmsi={selectedVessel?.mmsi ?? null}
-            onClear={() => setSelectedVessel(null)}
+            onClear={handleClear}
             onHover={handleWaypointHover}
+            timeRange={timeRange}
+            onTimeBounds={handleTimeBounds}
           />
         </Map>
         {selectedVessel && (
-          <VesselPanel vessel={selectedVessel} onClose={() => setSelectedVessel(null)} />
+          <VesselPanel vessel={selectedVessel} onClose={handleClear} />
         )}
         {hover && <Tooltip data={hover.data} x={hover.x} y={hover.y} />}
+        {timeBounds && timeRange && (
+          <TimeSlider
+            minTime={timeBounds[0]}
+            maxTime={timeBounds[1]}
+            value={timeRange}
+            onChange={setTimeRange}
+          />
+        )}
       </div>
     </div>
   );
