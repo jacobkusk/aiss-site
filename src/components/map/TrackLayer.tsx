@@ -97,12 +97,14 @@ function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | n
     }
   }
 
-  // Pass 3 — skip lines: isolated outlier point (both adjacent segs are outliers)
-  // Context check (A): outer flanking segs [i-1] and [i+2] must NOT be outliers —
-  // confirms the surrounding trajectory is normal, not a messy data section.
+  // Pass 3 — skip lines + mark outlier points
   for (let i = 0; i < segs.length - 1; i++) {
     if (!segs[i].isOutlier || !segs[i + 1].isOutlier) continue;
-    const preOk  = i === 0            || !segs[i - 1].isOutlier;
+    // Mark the outlier point so its seq number can be flipped to the other side
+    const badPt = features[i + 1];
+    features[i + 1] = { ...badPt, properties: { ...(badPt.properties as object), is_outlier: true } };
+
+    const preOk  = i === 0             || !segs[i - 1].isOutlier;
     const postOk = i + 2 >= segs.length || !segs[i + 2].isOutlier;
     if (!preOk || !postOk) continue; // messy section — no skip
     const skipFrom = (filtered[i].geometry as GeoJSON.Point).coordinates;
@@ -199,8 +201,8 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
       layout: {
         "text-field": ["to-string", ["get", "seq"]],
         "text-size": 10,
-        "text-offset": [1.4, -0.1],
-        "text-anchor": "left",
+        "text-offset": ["case", ["boolean", ["get", "is_outlier"], false], ["literal", [-1.4, -0.1]], ["literal", [1.4, -0.1]]],
+        "text-anchor": ["case", ["boolean", ["get", "is_outlier"], false], "right", "left"],
       },
       paint: {
         "text-color": ["coalesce", ["get", "prediction_color"], "#00e676"],
