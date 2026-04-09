@@ -329,9 +329,10 @@ export default function MapView({
       trackFeatures.push(line as GeoJSON.Feature);
     }
 
-    // Connect all waypoints as a single unbroken line in time order
-    const rawPts: [number, number][] = sortedWaypoints.map((f: any) => f.geometry.coordinates);
-    if (rawPts.length >= 2) {
+    // Waypoint-connecting line is interpretation — only draw it when there is no DB track line.
+    // When lines[] exists (tracks/ais_string/strings), that IS the truth. Dots are for interaction only.
+    if (lines.length === 0 && sortedWaypoints.length >= 2) {
+      const rawPts: [number, number][] = sortedWaypoints.map((f: any) => f.geometry.coordinates);
       trackFeatures.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: rawPts } });
     }
 
