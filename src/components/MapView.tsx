@@ -636,9 +636,9 @@ export default function MapView({
         map.addImage(`gap-arrow-${name}`, { width: 9 * PR, height: 15 * PR, data: new Uint8Array(img.data.buffer) }, { pixelRatio: PR });
       }
 
-      // Waypoint direction tick — small thin arrow for heading/COG on each track dot
+      // Waypoint direction arrow — rotated to heading/COG on each track dot
       {
-        const w = 5, h = 10;
+        const w = 14, h = 22;
         const c = document.createElement("canvas");
         c.width = w * PR; c.height = h * PR;
         const ctx = c.getContext("2d")!;
@@ -647,10 +647,13 @@ export default function MapView({
         ctx.beginPath();
         ctx.moveTo(w / 2, 0);
         ctx.lineTo(w, h);
-        ctx.lineTo(w / 2, h * 0.6);
+        ctx.lineTo(w / 2, h * 0.62);
         ctx.lineTo(0, h);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.4)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
         const imgData = ctx.getImageData(0, 0, w * PR, h * PR);
         map.addImage("wp-dir", { width: w * PR, height: h * PR, data: new Uint8Array(imgData.data.buffer) }, { pixelRatio: PR });
       }
@@ -814,12 +817,7 @@ export default function MapView({
           "icon-size": 1.0,
         },
         paint: {
-          // Dim when stationary, hide entirely if no speed info
-          "icon-opacity": [
-            "case",
-            [">", ["to-number", ["get", "speed"], 0], 0.3], 0.8,
-            0.25,
-          ] as any,
+          "icon-opacity": 0.9,
         },
       });
 
