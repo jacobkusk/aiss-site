@@ -67,11 +67,11 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
       layout: {
         "text-field": ["to-string", ["get", "seq"]],
         "text-size": 10,
-        "text-offset": [-1.2, 0],
-        "text-anchor": "right",
+        "text-offset": [1.4, 0],
+        "text-anchor": "left",
       },
       paint: {
-        "text-color": "#00e676",
+        "text-color": "#ffffff",
         "text-halo-color": "#020a12",
         "text-halo-width": 1.5,
       },
