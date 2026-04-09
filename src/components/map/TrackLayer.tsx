@@ -198,17 +198,16 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
 
       const features: GeoJSON.Feature[] = [...points];
 
-      const GAP_THRESHOLD = 600; // 10 minutes in seconds
+      const GAP_THRESHOLD = 300; // 5 minutes in seconds
 
       for (let i = 0; i < points.length - 1; i++) {
-        const from     = (points[i].geometry as GeoJSON.Point).coordinates;
-        const to       = (points[i + 1].geometry as GeoJSON.Point).coordinates;
-        const tA       = new Date((points[i].properties as any)?.recorded_at).getTime() / 1000;
-        const tB       = new Date((points[i + 1].properties as any)?.recorded_at).getTime() / 1000;
-        const isGap    = (tB - tA) > GAP_THRESHOLD;
+        const from  = (points[i].geometry as GeoJSON.Point).coordinates;
+        const to    = (points[i + 1].geometry as GeoJSON.Point).coordinates;
+        const tA    = new Date((points[i].properties as any)?.recorded_at).getTime() / 1000;
+        const tB    = new Date((points[i + 1].properties as any)?.recorded_at).getTime() / 1000;
+        const isGap = (tB - tA) > GAP_THRESHOLD;
 
         if (isGap) {
-          // Signal gap — dashed grey line
           features.push({
             type: "Feature",
             geometry: { type: "LineString", coordinates: [from, to] },
@@ -216,7 +215,6 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover }: Props) {
           });
         } else {
           const color = (points[i + 1].properties as any)?.prediction_color ?? "#2ba8c8";
-          if (color === "#f44336") continue; // red = manoeuvre break, don't draw solid line
           features.push({
             type: "Feature",
             geometry: { type: "LineString", coordinates: [from, to] },
