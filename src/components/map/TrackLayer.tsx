@@ -199,13 +199,11 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
       layout: {
         "text-field": ["to-string", ["get", "seq"]],
         "text-size": 10,
-        "text-offset": [1.4, 0],
+        "text-offset": [1.4, -0.1],
         "text-anchor": "left",
       },
       paint: {
         "text-color": ["coalesce", ["get", "prediction_color"], "#00e676"],
-        "text-halo-color": "#020a12",
-        "text-halo-width": 1.5,
       },
     });
 
