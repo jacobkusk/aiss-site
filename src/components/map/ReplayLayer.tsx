@@ -24,22 +24,33 @@ interface HoverData {
   lat: number; lon: number; updated_at: string | null;
 }
 
+export interface VesselClickData {
+  mmsi: number; name: string | null;
+  lat: number; lon: number;
+  sog: number | null; cog: number | null;
+  heading: null; updated_at: string | null;
+}
+
 interface Props {
   tracks: TrackMap;
   currentTime: number; // epoch ms
-  onVesselClick: (v: { mmsi: number; name: string | null; lat: number; lon: number; sog: number | null; cog: number | null; heading: null; updated_at: string | null }) => void;
+  onVesselSingleClick: (v: VesselClickData) => void;
+  onVesselDoubleClick: (v: VesselClickData) => void;
+  onClickEmpty: () => void;
   onHover: (d: HoverData | null) => void;
   hiddenMmsi?: number | null;
   dimOthers?: boolean;
+  followedMmsi?: number | null;
 }
+
+const DBLCLICK_MS = 280;
 
 function interpolate(points: VesselPoint[], tMs: number): VesselPoint | null {
   const t = tMs / 1000;
   if (!points.length) return null;
-  if (t < points[0].t - 600) return null;   // vessel not arrived yet (10 min grace)
-  if (t > points[points.length - 1].t + 600) return null; // vessel gone (10 min grace)
+  if (t < points[0].t - 600) return null;
+  if (t > points[points.length - 1].t + 600) return null;
 
-  // Binary search for surrounding points
   let lo = 0, hi = points.length - 1;
   while (lo < hi - 1) {
     const mid = (lo + hi) >> 1;
@@ -58,9 +69,17 @@ function interpolate(points: VesselPoint[], tMs: number): VesselPoint | null {
   };
 }
 
-export default function ReplayLayer({ tracks, currentTime, onVesselClick, onHover, hiddenMmsi, dimOthers }: Props) {
+export default function ReplayLayer({ tracks, currentTime, onVesselSingleClick, onVesselDoubleClick, onClickEmpty, onHover, hiddenMmsi, dimOthers, followedMmsi }: Props) {
   const map = useMap();
   const initializedRef = useRef(false);
+
+  // Stable refs so click handlers don't go stale
+  const singleClickRef = useRef(onVesselSingleClick);
+  const doubleClickRef = useRef(onVesselDoubleClick);
+  const clickEmptyRef  = useRef(onClickEmpty);
+  useEffect(() => { singleClickRef.current = onVesselSingleClick; }, [onVesselSingleClick]);
+  useEffect(() => { doubleClickRef.current = onVesselDoubleClick; }, [onVesselDoubleClick]);
+  useEffect(() => { clickEmptyRef.current  = onClickEmpty; },        [onClickEmpty]);
 
   // Initialize layers once
   useEffect(() => {
@@ -87,31 +106,56 @@ export default function ReplayLayer({ tracks, currentTime, onVesselClick, onHove
       type: "symbol",
       source: SOURCE,
       layout: {
-        "text-field": ["get", "name"],
+        "text-field": ["coalesce", ["get", "name"], ["to-string", ["get", "mmsi"]]],
         "text-size": 11,
         "text-offset": [0, 1.4],
         "text-anchor": "top",
       },
       paint: {
         "text-color": "#f5d57a",
-        "text-halo-color": "#020a12",
-        "text-halo-width": 1.5,
       },
     });
 
+    // Prevent map zoom on double-click over a vessel dot
+    const handleDblClick = (e: maplibregl.MapMouseEvent) => { e.preventDefault(); };
+    map.on("dblclick", LAYER_DOT, handleDblClick);
+
+    // Click: count clicks within DBLCLICK_MS to distinguish single vs double
+    let clickCount = 0;
+    let clickTimer: ReturnType<typeof setTimeout> | null = null;
+
     const handleClick = (e: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [LAYER_DOT] });
-      if (!features.length) return;
+
+      clickCount++;
+      if (clickTimer) clearTimeout(clickTimer);
+
+      if (!features.length) {
+        // Click on empty map
+        clickTimer = setTimeout(() => { clickCount = 0; clickEmptyRef.current(); }, DBLCLICK_MS);
+        return;
+      }
+
       const p = features[0].properties as any;
       const coords = (features[0].geometry as GeoJSON.Point).coordinates;
-      onVesselClick({
+      const data: VesselClickData = {
         mmsi: p.mmsi, name: p.name || null,
         lat: coords[1], lon: coords[0],
         sog: p.sog ?? null, cog: p.cog ?? null,
         heading: null, updated_at: null,
-      });
+      };
+
+      clickTimer = setTimeout(() => {
+        if (clickCount >= 2) {
+          doubleClickRef.current(data);
+        } else {
+          singleClickRef.current(data);
+        }
+        clickCount = 0;
+      }, DBLCLICK_MS);
     };
-    map.on("click", LAYER_DOT, handleClick);
+
+    map.on("click", handleClick);
 
     const handleMouseMove = (e: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [LAYER_DOT] });
@@ -126,7 +170,9 @@ export default function ReplayLayer({ tracks, currentTime, onVesselClick, onHove
     map.on("mouseleave", LAYER_DOT, handleMouseLeave);
 
     return () => {
-      map.off("click", LAYER_DOT, handleClick);
+      if (clickTimer) clearTimeout(clickTimer);
+      map.off("click", handleClick);
+      map.off("dblclick", LAYER_DOT, handleDblClick);
       map.off("mousemove", LAYER_DOT, handleMouseMove);
       map.off("mouseleave", LAYER_DOT, handleMouseLeave);
       if (map.getLayer(LAYER_LABEL)) map.removeLayer(LAYER_LABEL);
@@ -136,22 +182,34 @@ export default function ReplayLayer({ tracks, currentTime, onVesselClick, onHove
     };
   }, [map]);
 
-  // Dim all dots when another vessel is focused
+  // Opacity: A = data-driven (follow one), B = blanket dim (selected hidden), default = full
   useEffect(() => {
     if (!map || !map.getLayer(LAYER_DOT)) return;
-    map.setPaintProperty(LAYER_DOT, "circle-opacity", dimOthers ? 0.18 : 0.95);
-    map.setPaintProperty(LAYER_DOT, "circle-stroke-opacity", dimOthers ? 0.18 : 1);
-    map.setPaintProperty(LAYER_LABEL, "text-opacity", dimOthers ? 0 : 1);
-  }, [map, dimOthers]);
+    if (followedMmsi != null) {
+      map.setPaintProperty(LAYER_DOT, "circle-opacity", [
+        "case", ["==", ["get", "mmsi"], followedMmsi], 0.95, 0.12,
+      ]);
+      map.setPaintProperty(LAYER_DOT, "circle-stroke-opacity", [
+        "case", ["==", ["get", "mmsi"], followedMmsi], 1, 0.12,
+      ]);
+      map.setPaintProperty(LAYER_LABEL, "text-opacity", [
+        "case", ["==", ["get", "mmsi"], followedMmsi], 1, 0,
+      ]);
+    } else {
+      map.setPaintProperty(LAYER_DOT,   "circle-opacity",       dimOthers ? 0.18 : 0.95);
+      map.setPaintProperty(LAYER_DOT,   "circle-stroke-opacity", dimOthers ? 0.18 : 1);
+      map.setPaintProperty(LAYER_LABEL, "text-opacity",          dimOthers ? 0 : 1);
+    }
+  }, [map, dimOthers, followedMmsi]);
 
-  // Hide selected vessel dot
+  // Hide selected vessel dot (B state — VesselPanel + TrackLayer take over)
   useEffect(() => {
     if (!map || !map.getLayer(LAYER_DOT)) return;
     if (hiddenMmsi != null) {
-      map.setFilter(LAYER_DOT, ["!=", ["get", "mmsi"], hiddenMmsi]);
+      map.setFilter(LAYER_DOT,   ["!=", ["get", "mmsi"], hiddenMmsi]);
       map.setFilter(LAYER_LABEL, ["!=", ["get", "mmsi"], hiddenMmsi]);
     } else {
-      map.setFilter(LAYER_DOT, null);
+      map.setFilter(LAYER_DOT,   null);
       map.setFilter(LAYER_LABEL, null);
     }
   }, [map, hiddenMmsi]);

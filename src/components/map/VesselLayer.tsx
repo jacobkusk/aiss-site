@@ -55,21 +55,19 @@ export default function VesselLayer({ onVesselClick, onHover, hiddenMmsi }: Prop
       },
     });
 
-    // Name label
+    // Name label — name if available, MMSI as fallback
     map.addLayer({
       id: LAYER_LABEL,
       type: "symbol",
       source: SOURCE,
       layout: {
-        "text-field": ["get", "name"],
+        "text-field": ["coalesce", ["get", "name"], ["to-string", ["get", "mmsi"]]],
         "text-size": 11,
         "text-offset": [0, 1.4],
         "text-anchor": "top",
       },
       paint: {
         "text-color": "#c8dce8",
-        "text-halo-color": "#020a12",
-        "text-halo-width": 1.5,
       },
     });
 

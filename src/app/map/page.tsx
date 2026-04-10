@@ -47,6 +47,8 @@ export default function MapPage() {
   const [timeBounds, setTimeBounds] = useState<[number, number] | null>(null);
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
   const focusTimeRef = useRef<number | null>(null);
+  const [waypointTimes, setWaypointTimes] = useState<number[]>([]);
+  const [focusedWpTime, setFocusedWpTime] = useState<number | null>(null);
 
   // Replay mode
   const [replayMode, setReplayMode] = useState(false);
@@ -55,6 +57,7 @@ export default function MapPage() {
   const [replayStart, setReplayStart] = useState<number | null>(null);
   const [replayEnd, setReplayEnd] = useState<number | null>(null);
   const [replayTime, setReplayTime] = useState<number | null>(null);
+  const [followedMmsi, setFollowedMmsi] = useState<number | null>(null); // Tilstand A
 
   const handleTimeBounds = useCallback((bounds: [number, number]) => {
     setTimeBounds(bounds);
@@ -101,6 +104,7 @@ export default function MapPage() {
           { label: "LAT", value: fmtCoord(d.lat, "lat") },
           { label: "LON", value: fmtCoord(d.lon, "lon") },
           { label: "Time", value: fmtTime(d.recorded_at) },
+          ...(d.sources != null && d.sources > 1 ? [{ label: "Sources", value: `${d.sources} stations` }] : []),
         ],
       },
     });
@@ -108,15 +112,29 @@ export default function MapPage() {
 
   const handleClear = useCallback(() => {
     setSelectedVessel(null);
+    setFollowedMmsi(null);
     setTimeBounds(null);
     setTimeRange(null);
+    setWaypointTimes([]);
+    setFocusedWpTime(null);
     focusTimeRef.current = null;
   }, []);
 
-  const handleReplayVesselClick = useCallback((vessel: SelectedVessel) => {
+  // Tilstand A — single click: toggle follow/dim only, inspector stays open
+  const handleReplayVesselSingleClick = useCallback((vessel: SelectedVessel) => {
+    setFollowedMmsi((prev) => prev === vessel.mmsi ? null : vessel.mmsi);
+  }, []);
+
+  // Tilstand B — double click: open track inspector (existing behaviour)
+  const handleReplayVesselDoubleClick = useCallback((vessel: SelectedVessel) => {
+    setFollowedMmsi(null);
     if (replayTime != null) focusTimeRef.current = replayTime;
     setSelectedVessel(vessel);
   }, [replayTime]);
+
+  const handleReplayClickEmpty = useCallback(() => {
+    setFollowedMmsi(null);
+  }, []);
 
   const handleReplayLoad = useCallback((tracks: TrackMap, start: number, end: number) => {
     setReplayTracks(tracks);
@@ -134,24 +152,32 @@ export default function MapPage() {
             <ReplayLayer
               tracks={replayTracks}
               currentTime={replayTime ?? replayStart ?? Date.now()}
-              onVesselClick={handleReplayVesselClick}
+              onVesselSingleClick={handleReplayVesselSingleClick}
+              onVesselDoubleClick={handleReplayVesselDoubleClick}
+              onClickEmpty={handleReplayClickEmpty}
               onHover={handleVesselHover}
-              hiddenMmsi={selectedVessel?.mmsi ?? null}
+              hiddenMmsi={null}
               dimOthers={!!selectedVessel}
+              followedMmsi={followedMmsi}
             />
           ) : (
             <VesselLayer
               onVesselClick={setSelectedVessel}
               onHover={handleVesselHover}
-              hiddenMmsi={selectedVessel?.mmsi ?? null}
+              hiddenMmsi={null}
             />
           )}
           <TrackLayer
             selectedMmsi={selectedVessel?.mmsi ?? null}
             onClear={handleClear}
             onHover={handleWaypointHover}
+            onWaypointClick={setFocusedWpTime}
             timeRange={timeRange}
             onTimeBounds={handleTimeBounds}
+            onWaypointTimes={setWaypointTimes}
+            focusedTime={focusedWpTime}
+            replayMode={replayMode}
+            livePosition={!replayMode ? selectedVessel : null}
           />
         </MapView>
 
@@ -162,24 +188,24 @@ export default function MapPage() {
             title="Replay — se historisk trafik"
             style={{
               position: "absolute",
-              top: 12,
+              bottom: 28,
               right: 12,
               zIndex: 10,
-              background: "rgba(4, 12, 20, 0.88)",
-              border: "1px solid rgba(43, 168, 200, 0.2)",
+              background: "rgba(4, 12, 20, 0.92)",
+              border: "1px solid rgba(43, 168, 200, 0.5)",
               borderRadius: 6,
-              color: "#5a8090",
+              color: "#2ba8c8",
               fontSize: 11,
-              padding: "5px 10px",
+              padding: "6px 12px",
               cursor: "pointer",
               fontFamily: "var(--font-mono, monospace)",
               letterSpacing: "0.05em",
               display: "flex",
               alignItems: "center",
-              gap: 5,
+              gap: 6,
             }}
           >
-            <span style={{ fontSize: 13 }}>⏱</span> REPLAY
+            <span style={{ fontSize: 14 }}>⏱</span> REPLAY
           </button>
         )}
 
@@ -207,6 +233,9 @@ export default function MapPage() {
             onChange={setTimeRange}
             onClose={handleClear}
             bottom={replayMode ? 178 : 28}
+            waypoints={waypointTimes}
+            focusTime={focusedWpTime}
+            onFocusTimeChange={setFocusedWpTime}
           />
         )}
       </div>

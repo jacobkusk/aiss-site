@@ -19,8 +19,9 @@
 
 export const GAP = {
   /** Seconds between consecutive waypoints above which we call it a signal gap.
-   *  Renders as a dashed line in the destination point's prediction color. */
+   *  Renders as a dashed purple line connecting the last known → first reacquired position. */
   THRESHOLD_SEC: 300, // 5 minutes
+  COLOR: "#7C3AED",  // lilla — signal tabt
 };
 
 // ─── OUTLIER DETECTION ───────────────────────────────────────────────────────

@@ -16,10 +16,14 @@ interface Props {
 
 const SPEEDS = [1, 5, 15, 60, 300]; // realtime multipliers
 
-function toLocalISO(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+function utcOffsetLabel() {
+  const off = -new Date().getTimezoneOffset();
+  const h = Math.floor(Math.abs(off) / 60);
+  const m = Math.abs(off) % 60;
+  return `UTC${off >= 0 ? "+" : "-"}${h}${m ? `:${String(m).padStart(2, "0")}` : ""}`;
 }
+const TZ_LABEL = utcOffsetLabel();
 
 function fmtTime(epoch: number) {
   return new Date(epoch).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -28,11 +32,14 @@ function fmtDate(epoch: number) {
   return new Date(epoch).toLocaleDateString([], { day: "2-digit", month: "short" });
 }
 
+function toDateStr(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export default function ReplayControl({ onLoad, onTimeChange, onClose, currentTime, start, end, dimmed }: Props) {
-  const yesterday = new Date(Date.now() - 86_400_000);
-  const [startStr, setStartStr] = useState(() => toLocalISO(new Date(yesterday.setHours(17, 0, 0, 0))));
-  const [endStr,   setEndStr]   = useState(() => toLocalISO(new Date(yesterday.setHours(21, 30, 0, 0))));
-  const [loading,  setLoading]  = useState(false);
+  const [dateStr, setDateStr] = useState(() => toDateStr(new Date()));
+  const [loading, setLoading] = useState(false);
   const [playing,  setPlaying]  = useState(false);
   const [speedIdx, setSpeedIdx] = useState(2); // default 15×
   const [vesselCount, setVesselCount] = useState<number | null>(null);
@@ -66,9 +73,12 @@ export default function ReplayControl({ onLoad, onTimeChange, onClose, currentTi
   const handleLoad = useCallback(async () => {
     setLoading(true);
     setPlaying(false);
+    const dayStart = new Date(dateStr + "T00:00:00");
+    const dayEnd   = new Date(dateStr + "T23:59:59");
+    const now      = new Date();
     const { data, error } = await supabase.rpc("get_tracks_in_range", {
-      p_start: new Date(startStr).toISOString(),
-      p_end:   new Date(endStr).toISOString(),
+      p_start: dayStart.toISOString(),
+      p_end:   (dayEnd > now ? now : dayEnd).toISOString(),
     });
     setLoading(false);
     if (error || !data) { console.error(error); return; }
@@ -83,11 +93,13 @@ export default function ReplayControl({ onLoad, onTimeChange, onClose, currentTi
     // Sort each vessel's points by time
     map.forEach((v) => v.points.sort((a, b) => a.t - b.t));
     setVesselCount(map.size);
-    const s = new Date(startStr).getTime();
-    const e = new Date(endStr).getTime();
+    const s = dayStart.getTime();
+    const e = Math.min(dayEnd.getTime(), now.getTime());
     onLoad(map, s, e);
-    onTimeChange(s);
-  }, [startStr, endStr, onLoad, onTimeChange]);
+    // Start at noon UTC, clamped to available range
+    const noonUTC = new Date(dateStr + "T12:00:00Z").getTime();
+    onTimeChange(Math.max(s, Math.min(noonUTC, e)));
+  }, [dateStr, onLoad, onTimeChange]);
 
   const handleScrub = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setPlaying(false);
@@ -126,16 +138,10 @@ export default function ReplayControl({ onLoad, onTimeChange, onClose, currentTi
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ fontSize: 11, color: "#f59e0b", letterSpacing: "0.06em" }}>⏱ REPLAY</span>
         <input
-          type="datetime-local"
-          value={startStr}
-          onChange={(e) => setStartStr(e.target.value)}
-          style={inputStyle}
-        />
-        <span style={{ fontSize: 11, color: "#5a8090" }}>→</span>
-        <input
-          type="datetime-local"
-          value={endStr}
-          onChange={(e) => setEndStr(e.target.value)}
+          type="date"
+          value={dateStr}
+          max={toDateStr(new Date())}
+          onChange={(e) => setDateStr(e.target.value)}
           style={inputStyle}
         />
         <button onClick={handleLoad} disabled={loading} style={btnStyle("#2ba8c8")}>
@@ -154,7 +160,10 @@ export default function ReplayControl({ onLoad, onTimeChange, onClose, currentTi
           <div style={{ position: "relative", marginBottom: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
               <span style={{ fontSize: 10, color: "#5a8090" }}>{fmtDate(start!)} {fmtTime(start!)}</span>
-              <span style={{ fontSize: 11, color: "#f59e0b", fontWeight: "bold" }}>{fmtTime(currentTime!)}</span>
+              <span style={{ fontSize: 11, color: "#f59e0b", fontWeight: "bold" }}>
+                {fmtTime(currentTime!)}
+                <span style={{ fontSize: 9, color: "#5a8090", marginLeft: 4, fontWeight: "normal" }}>{TZ_LABEL}</span>
+              </span>
               <span style={{ fontSize: 10, color: "#5a8090" }}>{fmtDate(end!)} {fmtTime(end!)}</span>
             </div>
             <input
