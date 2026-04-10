@@ -89,6 +89,7 @@ function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | n
         mmsi:             livePosition.mmsi,
         recorded_at:      livePosition.updated_at,
         prediction_color: "#00e676",
+        live:             true,
       };
       if (livePosition.sog != null)     liveProps.speed   = livePosition.sog;
       if (livePosition.cog != null)     liveProps.course  = livePosition.cog;
@@ -160,7 +161,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, onWaypointC
       filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "speed"]],
       paint: {
         "circle-radius": 9,
-        "circle-color": "rgba(0,0,0,0)",
+        "circle-color": ["case", ["boolean", ["get", "live"], false], "#00e676", "rgba(0,0,0,0)"],
         "circle-stroke-width": 1.5,
         "circle-stroke-color": ["coalesce", ["get", "prediction_color"], "#00e676"],
       },
@@ -170,7 +171,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, onWaypointC
       id: LAYER_DOTS,
       type: "circle",
       source: SOURCE,
-      filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "mmsi"]],
+      filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "mmsi"], ["!", ["boolean", ["get", "live"], false]]],
       paint: { "circle-radius": 3, "circle-color": "#ffffff", "circle-opacity": 0.9 },
     });
 
