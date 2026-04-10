@@ -58,8 +58,7 @@ export default function VesselLayer({ onVesselClick, onVesselUpdate, selectedMms
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 4, 10, 7, 14, 10],
         "circle-color": "#00e676",
-        "circle-stroke-width": 1.5,
-        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 0,
         "circle-opacity": 0.9,
       },
     });
