@@ -123,10 +123,18 @@ export default function MapPage() {
     focusTimeRef.current = null;
   }, []);
 
-  // Tilstand A — single click: toggle follow/dim only, inspector stays open
+  // Tilstand A — single click: follow vessel, or open inspector if already followed
   const handleReplayVesselSingleClick = useCallback((vessel: SelectedVessel) => {
-    setFollowedMmsi((prev) => prev === vessel.mmsi ? null : vessel.mmsi);
-  }, []);
+    setFollowedMmsi((prev) => {
+      if (prev === vessel.mmsi) {
+        // Already followed — open track inspector
+        if (replayTime != null) focusTimeRef.current = replayTime;
+        setSelectedVessel(vessel);
+        return null;
+      }
+      return vessel.mmsi;
+    });
+  }, [replayTime]);
 
   // Tilstand B — double click: open track inspector (existing behaviour)
   const handleReplayVesselDoubleClick = useCallback((vessel: SelectedVessel) => {
