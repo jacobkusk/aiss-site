@@ -131,12 +131,13 @@ export default function ReplayLayer({ tracks, currentTime, onVesselSingleClick, 
       layout: {
         "text-field": ["concat", "⌐ ", ["coalesce", ["get", "name"], ["to-string", ["get", "mmsi"]]]],
         "text-size": 11,
-        "text-variable-anchor": ["right", "left", "top-right", "bottom-right"],
-        "text-radial-offset": 0.9,
-        "text-justify": "auto",
+        "text-offset": [0.8, 0],
+        "text-anchor": "left",
       },
       paint: {
         "text-color": "#f5d57a",
+        "text-halo-color": "#020a12",
+        "text-halo-width": 1.5,
       },
     });
 
