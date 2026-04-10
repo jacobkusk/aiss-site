@@ -129,7 +129,7 @@ export default function ReplayLayer({ tracks, currentTime, onVesselSingleClick, 
       type: "symbol",
       source: SOURCE,
       layout: {
-        "text-field": ["concat", "⌐ ", ["coalesce", ["get", "name"], ["to-string", ["get", "mmsi"]]]],
+        "text-field": ["concat", "─ ", ["coalesce", ["get", "name"], ["to-string", ["get", "mmsi"]]]],
         "text-size": 11,
         "text-offset": [0.8, 0],
         "text-anchor": "left",
