@@ -3,45 +3,44 @@
 import { useEffect, useRef } from "react";
 import { useMap } from "./MapContext";
 import { supabase } from "@/lib/supabase";
-import { GAP, OUTLIER, LINE_STYLE } from "@/lib/trackRules";
+import { GAP, LINE_STYLE } from "@/lib/trackRules";
 
 const SOURCE = "track";
+const FOCUS_SOURCE = "track-focus";
 const LAYER_LINE = "track-line";
 const LAYER_DOTS = "track-dots";
 const LAYER_RING = "track-rings";
 const LAYER_SOG = "track-sog";
 const LAYER_COG = "track-cog";
-const LAYER_GAP     = "track-gap";
-const LAYER_OUTLIER = "track-outlier";
+const LAYER_GAP   = "track-gap";
+const LAYER_FOCUS = "track-focus-dot";
 
-interface WaypointHover { x: number; y: number; mmsi: number | null; speed: number | null; course: number | null; heading: number | null; recorded_at: string | null; lat: number; lon: number; }
+interface WaypointHover { x: number; y: number; mmsi: number | null; speed: number | null; course: number | null; heading: number | null; recorded_at: string | null; lat: number; lon: number; sources: number | null; }
+
+interface LivePosition {
+  mmsi: number;
+  lat: number;
+  lon: number;
+  sog: number | null;
+  cog: number | null;
+  heading: number | null;
+  updated_at: string | null;
+}
 
 interface Props {
   selectedMmsi: number | null;
   onClear: () => void;
   onHover: (data: WaypointHover | null) => void;
-  timeRange?: [number, number] | null; // epoch ms [start, end]
-  onTimeBounds?: (bounds: [number, number]) => void; // epoch ms [min, max]
+  onWaypointClick?: (t: number) => void;
+  timeRange?: [number, number] | null;
+  onTimeBounds?: (bounds: [number, number]) => void;
+  onWaypointTimes?: (times: number[]) => void;
+  focusedTime?: number | null;
+  replayMode?: boolean;
+  livePosition?: LivePosition | null;
 }
 
-interface TrackStats { max_speed: number | null; avg_speed_moving: number | null; }
-
-function distMeters(a: number[], b: number[]): number {
-  const dLat = (b[1] - a[1]) * 111320;
-  const dLon = (b[0] - a[0]) * 111320 * Math.cos(a[1] * Math.PI / 180);
-  return Math.sqrt(dLat * dLat + dLon * dLon);
-}
-
-function outlierThreshold(stats: TrackStats | null): number {
-  const max = stats?.max_speed ?? null;
-  const avg = stats?.avg_speed_moving ?? null;
-  const candidates: number[] = [];
-  if (max != null && max > 0) candidates.push(max * OUTLIER.MAX_SPEED_FACTOR);
-  if (avg != null && avg > 0) candidates.push(avg * OUTLIER.AVG_SPEED_FACTOR);
-  return candidates.length ? Math.max(Math.min(...candidates), OUTLIER.MIN_THRESHOLD_KN) : OUTLIER.DEFAULT_THRESHOLD_KN;
-}
-
-function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | null | undefined, stats: TrackStats | null): GeoJSON.FeatureCollection {
+function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | null | undefined, livePosition?: LivePosition | null): GeoJSON.FeatureCollection {
   let filtered = points;
   if (timeRange) {
     filtered = points.filter((f) => {
@@ -53,77 +52,71 @@ function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | n
 
   const features: GeoJSON.Feature[] = [...filtered];
 
-  const threshold = outlierThreshold(stats);
-
-  // Pass 1 — classify each segment
-  interface Seg { isOutlier: boolean; isGap: boolean; color: string; impliedKn: number; }
-  const segs: Seg[] = filtered.slice(0, -1).map((_, i) => {
+  // Emit line features
+  for (let i = 0; i < filtered.length - 1; i++) {
     const from  = (filtered[i].geometry as GeoJSON.Point).coordinates;
     const to    = (filtered[i + 1].geometry as GeoJSON.Point).coordinates;
     const tA    = new Date((filtered[i].properties as any)?.recorded_at).getTime() / 1000;
     const tB    = new Date((filtered[i + 1].properties as any)?.recorded_at).getTime() / 1000;
-    const dtSec = tB - tA;
-    const isGap = dtSec > GAP.THRESHOLD_SEC;
-    const impliedKn = dtSec > 0 ? (distMeters(from, to) / dtSec) / 0.514444 : 999;
-    const isOutlier = impliedKn > threshold;
-    const color = (filtered[i + 1].properties as any)?.prediction_color ?? (isGap ? "#00e676" : "#2ba8c8");
-    return { isOutlier, isGap, color, impliedKn };
-  });
-
-  // Between pass 1 and 2: reset prediction_color on points immediately after
-  // an outlier segment — their SQL score was computed relative to a bad fix.
-  // Exception: if the OUTGOING segment from that point is ALSO an outlier,
-  // the point itself is the bad fix — keep its red ring.
-  segs.forEach((s, i) => {
-    if (!s.isOutlier) return;
-    const outgoingIsAlsoOutlier = i + 1 < segs.length && segs[i + 1].isOutlier;
-    if (outgoingIsAlsoOutlier) return; // this IS the bad point — preserve red ring
-    const pt = features[i + 1];
-    features[i + 1] = { ...pt, properties: { ...(pt.properties as object), prediction_color: "#00e676" } };
-    if (i + 1 < segs.length) segs[i + 1] = { ...segs[i + 1], color: "#00e676" };
-  });
-
-  // Pass 2 — emit line features
-  for (let i = 0; i < segs.length; i++) {
-    const from = (filtered[i].geometry as GeoJSON.Point).coordinates;
-    const to   = (filtered[i + 1].geometry as GeoJSON.Point).coordinates;
-    const s    = segs[i];
-    if (s.isOutlier) {
-      features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [from, to] }, properties: { type: "outlier" } });
-    } else if (s.isGap) {
-      features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [from, to] }, properties: { type: "gap", prediction_color: s.color } });
+    const isGap = (tB - tA) > GAP.THRESHOLD_SEC;
+    const color = (filtered[i + 1].properties as any)?.prediction_color ?? "#2ba8c8";
+    if (isGap) {
+      features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [from, to] }, properties: { type: "gap", prediction_color: GAP.COLOR } });
     } else {
-      features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [from, to] }, properties: { type: "line", prediction_color: s.color } });
+      features.push({ type: "Feature", geometry: { type: "LineString", coordinates: [from, to] }, properties: { type: "line", prediction_color: color } });
     }
   }
 
-  // Pass 3 — skip lines + mark outlier points
-  for (let i = 0; i < segs.length - 1; i++) {
-    if (!segs[i].isOutlier || !segs[i + 1].isOutlier) continue;
-    // Mark the outlier point so its seq number can be flipped to the other side
-    const badPt = features[i + 1];
-    features[i + 1] = { ...badPt, properties: { ...(badPt.properties as object), is_outlier: true } };
-
-    const preOk  = i === 0             || !segs[i - 1].isOutlier;
-    const postOk = i + 2 >= segs.length || !segs[i + 2].isOutlier;
-    if (!preOk || !postOk) continue; // messy section — no skip
-    const skipFrom = (filtered[i].geometry as GeoJSON.Point).coordinates;
-    const skipTo   = (filtered[i + 2].geometry as GeoJSON.Point).coordinates;
-    features.push({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: [skipFrom, skipTo] },
-      properties: { type: "gap", prediction_color: "#00e676" },
-    });
+  // Live position extension — draw line from last waypoint to current vessel position
+  if (livePosition?.updated_at && filtered.length > 0) {
+    const lastPt   = filtered[filtered.length - 1];
+    const lastT    = new Date((lastPt.properties as any)?.recorded_at ?? 0).getTime() / 1000;
+    const liveT    = new Date(livePosition.updated_at).getTime() / 1000;
+    const dtSec    = liveT - lastT;
+    if (dtSec > 10) {
+      const fromCoord = (lastPt.geometry as GeoJSON.Point).coordinates;
+      const toCoord   = [livePosition.lon, livePosition.lat];
+      // Gap line (dashed purple if > threshold, solid green if recent)
+      features.push({
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: [fromCoord, toCoord] },
+        properties: dtSec > GAP.THRESHOLD_SEC
+          ? { type: "gap", prediction_color: GAP.COLOR }
+          : { type: "line", prediction_color: "#00e676" },
+      });
+      // Live dot (shows as ring + dot, hoverable)
+      features.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: toCoord },
+        properties: {
+          mmsi:             livePosition.mmsi,
+          recorded_at:      livePosition.updated_at,
+          speed:            livePosition.sog,
+          course:           livePosition.cog,
+          heading:          livePosition.heading,
+          prediction_color: "#00e676",
+        },
+      });
+    }
   }
 
   return { type: "FeatureCollection", features };
 }
 
-export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, onTimeBounds }: Props) {
+export default function TrackLayer({ selectedMmsi, onClear, onHover, onWaypointClick, timeRange, onTimeBounds, onWaypointTimes, focusedTime, replayMode, livePosition }: Props) {
   const map = useMap();
   const initializedRef = useRef(false);
   const allPointsRef   = useRef<GeoJSON.Feature[]>([]);
-  const statsRef       = useRef<TrackStats | null>(null);
+  const onWpClickRef      = useRef(onWaypointClick);
+  const replayModeRef     = useRef(replayMode);
+  const onHoverRef        = useRef(onHover);
+  const timeRangeRef      = useRef(timeRange);
+  const livePositionRef   = useRef(livePosition);
+  useEffect(() => { onWpClickRef.current    = onWaypointClick; }, [onWaypointClick]);
+  useEffect(() => { replayModeRef.current   = replayMode; },      [replayMode]);
+  useEffect(() => { onHoverRef.current      = onHover; },         [onHover]);
+  useEffect(() => { timeRangeRef.current    = timeRange; },       [timeRange]);
+  useEffect(() => { livePositionRef.current = livePosition; },    [livePosition]);
 
   useEffect(() => {
     if (!map || initializedRef.current) return;
@@ -131,6 +124,7 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
 
     const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
     map.addSource(SOURCE, { type: "geojson", data: empty });
+    map.addSource(FOCUS_SOURCE, { type: "geojson", data: empty });
 
     map.addLayer({
       id: LAYER_LINE,
@@ -158,20 +152,6 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
       },
     });
 
-    // Dashed red for outlier positions (implied speed > 60 kn — bad GPS fix)
-    map.addLayer({
-      id: LAYER_OUTLIER,
-      type: "line",
-      source: SOURCE,
-      filter: ["==", ["get", "type"], "outlier"],
-      paint: {
-        "line-color": "#f44336",
-        "line-width": LINE_STYLE.outlier.width,
-        "line-opacity": LINE_STYLE.outlier.opacity,
-        "line-dasharray": LINE_STYLE.outlier.dash,
-      },
-    });
-
     map.addLayer({
       id: LAYER_RING,
       type: "circle",
@@ -193,11 +173,25 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
       paint: { "circle-radius": 3, "circle-color": "#ffffff", "circle-opacity": 0.9 },
     });
 
+    // Highlighted (focused) waypoint — on top of everything
+    map.addLayer({
+      id: LAYER_FOCUS,
+      type: "circle",
+      source: FOCUS_SOURCE,
+      paint: {
+        "circle-radius": 9,
+        "circle-color": "#f59e0b",
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#020a12",
+        "circle-opacity": 1,
+      },
+    });
+
     map.addLayer({
       id: LAYER_SOG,
       type: "symbol",
       source: SOURCE,
-      filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "seq"], ["!", ["boolean", ["get", "is_outlier"], false]]],
+      filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "seq"]],
       layout: {
         "text-field": ["to-string", ["get", "seq"]],
         "text-size": 10,
@@ -235,8 +229,21 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
     });
 
     const handleClick = (e: maplibregl.MapMouseEvent) => {
-      const hit = map.queryRenderedFeatures(e.point, { layers: ["vessel-dots"] });
-      if (!hit.length) {
+      // Waypoint click — select it
+      const wpHit = map.queryRenderedFeatures(e.point, { layers: [LAYER_DOTS, LAYER_RING, LAYER_FOCUS] });
+      if (wpHit.length) {
+        const ra = (wpHit[0].properties as any)?.recorded_at;
+        if (ra && onWpClickRef.current) {
+          onWpClickRef.current(new Date(ra).getTime());
+        }
+        return;
+      }
+      // In replay mode, ReplayLayer owns clearing — never clear here
+      if (replayModeRef.current) return;
+      // Live mode: don't clear if clicking a vessel dot
+      const dotLayers = map.getLayer("vessel-dots") ? ["vessel-dots"] : [];
+      const dotHit = dotLayers.length ? map.queryRenderedFeatures(e.point, { layers: dotLayers }) : [];
+      if (!dotHit.length) {
         (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData({ type: "FeatureCollection", features: [] });
         onClear();
       }
@@ -245,11 +252,11 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
 
     const handleWpMove = (e: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [LAYER_DOTS, LAYER_RING] });
-      if (!features.length) { onHover(null); map.getCanvas().style.cursor = ""; return; }
+      if (!features.length) { onHoverRef.current(null); map.getCanvas().style.cursor = ""; return; }
       map.getCanvas().style.cursor = "crosshair";
       const p = features[0].properties as any;
       const coords = (features[0].geometry as GeoJSON.Point).coordinates;
-      onHover({
+      onHoverRef.current({
         x: e.originalEvent.clientX,
         y: e.originalEvent.clientY,
         mmsi: p.mmsi ?? null,
@@ -259,9 +266,10 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
         recorded_at: p.recorded_at ?? null,
         lat: coords[1],
         lon: coords[0],
+        sources: p.sources != null ? Number(p.sources) : null,
       });
     };
-    const handleWpLeave = () => { onHover(null); };
+    const handleWpLeave = () => { onHoverRef.current(null); };
 
     map.on("mousemove", LAYER_DOTS, handleWpMove);
     map.on("mouseleave", LAYER_DOTS, handleWpLeave);
@@ -274,9 +282,10 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
       map.off("mouseleave", LAYER_DOTS, handleWpLeave);
       map.off("mousemove", LAYER_RING, handleWpMove);
       map.off("mouseleave", LAYER_RING, handleWpLeave);
-      [LAYER_COG, LAYER_SOG, LAYER_RING, LAYER_DOTS, LAYER_OUTLIER, LAYER_GAP, LAYER_LINE].forEach((id) => {
+      [LAYER_FOCUS, LAYER_COG, LAYER_SOG, LAYER_RING, LAYER_DOTS, LAYER_GAP, LAYER_LINE].forEach((id) => {
         if (map.getLayer(id)) map.removeLayer(id);
       });
+      if (map.getSource(FOCUS_SOURCE)) map.removeSource(FOCUS_SOURCE);
       if (map.getSource(SOURCE)) map.removeSource(SOURCE);
       initializedRef.current = false;
     };
@@ -291,6 +300,8 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
       }
       return;
     }
+
+    let isFirst = true;
 
     async function fetchTrack() {
       const { data, error } = await supabase.rpc("get_vessel_track", {
@@ -314,22 +325,31 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
       points.forEach((f, i) => { (f.properties as any).seq = i + 1; });
 
       allPointsRef.current = points;
-      statsRef.current = geojson.stats ?? null;
 
-      // Report time bounds
-      if (points.length >= 2 && onTimeBounds) {
+      // Only report time bounds on first fetch — subsequent polls don't reset the slider
+      if (isFirst && points.length >= 2) {
+        isFirst = false;
         const tFirst = new Date((points[0].properties as any)?.recorded_at).getTime();
         const tLast  = new Date((points[points.length - 1].properties as any)?.recorded_at).getTime();
         if (!isNaN(tFirst) && !isNaN(tLast)) {
-          onTimeBounds([tFirst, tLast]);
+          if (onTimeBounds) onTimeBounds([tFirst, tLast]);
+          if (onWaypointTimes) {
+            const times = points
+              .map(f => new Date((f.properties as any)?.recorded_at ?? 0).getTime())
+              .filter(t => !isNaN(t));
+            onWaypointTimes(times);
+          }
         }
       }
 
-      // Apply current timeRange filter when rendering
-      (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData(buildGeoJSON(points, timeRange, statsRef.current));
+      // Use timeRangeRef so the interval always has the current slider range
+      (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData(buildGeoJSON(points, timeRangeRef.current, livePositionRef.current));
     }
 
     fetchTrack();
+    const pollId = setInterval(fetchTrack, 30_000);
+
+    return () => { clearInterval(pollId); };
   }, [map, selectedMmsi]);
 
   // Re-filter when timeRange changes (without re-fetching)
@@ -337,8 +357,27 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, timeRange, 
     if (!map || !map.getSource(SOURCE)) return;
     const points = allPointsRef.current;
     if (!points.length) return;
-    (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData(buildGeoJSON(points, timeRange, statsRef.current));
+    (map.getSource(SOURCE) as maplibregl.GeoJSONSource)?.setData(buildGeoJSON(points, timeRange, livePositionRef.current));
   }, [map, timeRange]);
+
+  // Show focused waypoint highlight dot
+  useEffect(() => {
+    if (!map || !map.getSource(FOCUS_SOURCE)) return;
+    const focusSrc = map.getSource(FOCUS_SOURCE) as maplibregl.GeoJSONSource;
+    if (focusedTime == null || !allPointsRef.current.length) {
+      focusSrc.setData({ type: "FeatureCollection", features: [] });
+      return;
+    }
+    // Find waypoint closest to focusedTime
+    let closest: GeoJSON.Feature | null = null;
+    let minDiff = Infinity;
+    for (const f of allPointsRef.current) {
+      const t = new Date((f.properties as any)?.recorded_at ?? 0).getTime();
+      const diff = Math.abs(t - focusedTime);
+      if (diff < minDiff) { minDiff = diff; closest = f; }
+    }
+    if (closest) focusSrc.setData({ type: "FeatureCollection", features: [closest] });
+  }, [map, focusedTime]);
 
   return null;
 }
