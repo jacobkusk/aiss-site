@@ -90,6 +90,7 @@ function buildGeoJSON(points: GeoJSON.Feature[], timeRange: [number, number] | n
         recorded_at:      livePosition.updated_at,
         prediction_color: "#00e676",
         live:             true,
+        seq:              filtered.length + 1,
       };
       if (livePosition.sog != null)     liveProps.speed   = livePosition.sog;
       if (livePosition.cog != null)     liveProps.course  = livePosition.cog;
