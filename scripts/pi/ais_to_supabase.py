@@ -5,7 +5,6 @@ Sender AIS-positioner til aiss ingest-ais Edge Function.
 Kører som systemd service på Raspberry Pi.
 """
 
-import subprocess
 import threading
 import time
 import json
@@ -35,7 +34,7 @@ SUPABASE_URL     = "https://grugesypzsebqcxcdseu.supabase.co"
 SUPABASE_KEY     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdydWdlc3lwenNlYnFjeGNkc2V1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1MDM4NzYsImV4cCI6MjA5MTA3OTg3Nn0.InIKvUBRTdX8MI6_f0k5d276wRy-W8tAmnBbT6qyhpg"
 
 # Edge Function endpoint (ny pipeline)
-EDGE_FUNCTION_URL = f"{SUPABASE_URL}/functions/v1/ingest-ais"
+EDGE_FUNCTION_URL = f"{SUPABASE_URL}/functions/v1/ingest-positions"
 
 # Gammel RPC endpoint (dual-write fallback, sæt False når valideret)
 DUAL_WRITE       = False
@@ -138,6 +137,29 @@ def flush_loop():
             stats["errors"] += 1
 
 # ---------------------------------------------------------------------------
+# Vessel name cache (Type 5 → position enrichment + DB persistering)
+# ---------------------------------------------------------------------------
+
+vessel_name_cache: dict[int, str] = {}  # mmsi → skibsnavn
+
+def persist_vessel_name(mmsi: int, name: str):
+    """Gem skibsnavn til entities.display_name i Supabase (kører i baggrundstråd)."""
+    try:
+        resp = SESSION.patch(
+            f"{SUPABASE_URL}/rest/v1/entities",
+            params={"domain_meta->>mmsi": f"eq.{mmsi}"},
+            json={"display_name": name},
+            headers={"Prefer": "return=minimal"},
+            timeout=5,
+        )
+        if resp.status_code in (200, 204):
+            log.info(f"  [name→db] MMSI={mmsi} '{name}' gemt")
+        else:
+            log.warning(f"  [name→db] MMSI={mmsi} fejl {resp.status_code}: {resp.text[:100]}")
+    except Exception as e:
+        log.warning(f"  [name→db] MMSI={mmsi} exception: {e}")
+
+# ---------------------------------------------------------------------------
 # NMEA parser — bruger pyais til at decode !AIVDM sætninger
 # ---------------------------------------------------------------------------
 
@@ -146,8 +168,9 @@ nmea_parts: dict[str, list[str]] = {}
 
 def parse_nmea_line(line: str) -> dict | None:
     """
-    Decoder én NMEA-linje fra rtl_ais.
+    Decoder én NMEA-linje fra AIS-catcher.
     Returnerer dict med mmsi, lat, lon, sog, cog, timestamp — eller None.
+    Type 5 (skibsnavn/static) gemmes til DB og caches.
     Multi-part beskeder (f.eks. !AIVDM,2,1,...) buffereres til del 2 ankommer.
     """
     line = line.strip()
@@ -176,13 +199,32 @@ def parse_nmea_line(line: str) -> dict | None:
         msg = decode(*lines_to_decode)
         data = msg.asdict()
 
-        # Kun positionsbeskeder med koordinater (type 1,2,3,18,21)
         mmsi = data.get("mmsi")
         lat = data.get("lat")
         lon = data.get("lon")
 
+        # Type 5 (static/voyage): skibsnavn uden position.
+        # Cache + gem straks til DB så replay altid har det.
+        shipname = data.get("shipname") or data.get("name")
+        ship_type = data.get("ship_type")
+        if shipname and mmsi:
+            clean_name = str(shipname).strip().rstrip("@").strip()
+            if clean_name and vessel_name_cache.get(int(mmsi)) != clean_name:
+                vessel_name_cache[int(mmsi)] = clean_name
+                log.info(f"  [type5] MMSI={mmsi} name={clean_name}")
+                # Gem til DB i baggrunden — ikke-blokerende
+                threading.Thread(
+                    target=persist_vessel_name,
+                    args=(int(mmsi), clean_name),
+                    daemon=True,
+                ).start()
+
+        # Kun positionsbeskeder med koordinater (type 1,2,3,18,21)
         if mmsi is None or lat is None or lon is None:
             return None
+
+        # Brug cachet navn fra Type 5 til at berige positionen
+        cached_name = vessel_name_cache.get(int(mmsi))
 
         # Byg normaliseret dict til Edge Function
         return {
@@ -194,8 +236,8 @@ def parse_nmea_line(line: str) -> dict | None:
             "heading": int(data.get("heading", 511) or 511),
             "nav_status": data.get("status"),
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "vessel_name": data.get("shipname") or data.get("name"),
-            "ship_type": data.get("ship_type"),
+            "vessel_name": cached_name,
+            "ship_type": ship_type if ship_type else data.get("ship_type"),
         }
 
     except Exception:
@@ -211,25 +253,24 @@ def main():
     log.info(f"  endpoint: {EDGE_FUNCTION_URL}")
     log.info(f"  dual-write: {DUAL_WRITE}")
     log.info(f"  flush interval: {FLUSH_INTERVAL}s")
+    log.info(f"  decoder: AIS-catcher (extern service)")
+    log.info(f"  lytter på UDP {UDP_HOST}:{UDP_PORT}")
     log.info("=" * 50)
 
     # Start flush thread
     t = threading.Thread(target=flush_loop, daemon=True)
     t.start()
 
-    # Start rtl_ais — sender decoded NMEA til UDP port 10110
-    # -g 49.6 = optimal gain for AIS-modtagelse (auto-gain giver ~10% rækkevidde)
-    proc = subprocess.Popen(
-        ["rtl_ais", "-h", UDP_HOST, "-P", str(UDP_PORT), "-g", "49.6"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    log.info(f"rtl_ais PID: {proc.pid} — lytter på UDP {UDP_HOST}:{UDP_PORT}")
+    # AIS-catcher kører som separat systemd service (ais-catcher.service)
+    # og sender NMEA til UDP port 10110. Vi lytter bare.
+    # VIGTIGT: Start IKKE rtl_ais herfra — AIS-catcher håndterer SDR'en.
 
     # Lyt på UDP socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((UDP_HOST, UDP_PORT))
-    sock.settimeout(2.0)
+    sock.settimeout(10.0)
+
+    log.info("Venter på NMEA fra AIS-catcher...")
 
     try:
         while True:
@@ -237,15 +278,7 @@ def main():
                 data, _ = sock.recvfrom(4096)
                 raw_line = data.decode("utf-8", errors="ignore")
             except socket.timeout:
-                # Tjek at rtl_ais stadig kører
-                if proc.poll() is not None:
-                    log.error("rtl_ais stoppede uventet — genstarter...")
-                    proc = subprocess.Popen(
-                        ["rtl_ais", "-h", UDP_HOST, "-P", str(UDP_PORT), "-g", "49.6"],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                    log.info(f"rtl_ais genstartet PID: {proc.pid}")
+                log.warning("Ingen data i 10s — tjek at ais-catcher.service kører")
                 continue
 
             for line in raw_line.splitlines():
@@ -270,7 +303,6 @@ def main():
         flush()
     finally:
         sock.close()
-        proc.terminate()
         log.info(f"Slut. Sendt={stats['sent']} accepted={stats['accepted']} rejected={stats['rejected']}")
 
 
