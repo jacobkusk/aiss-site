@@ -7,19 +7,16 @@ async function getStats() {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
-    // Use pg_class.reltuples for instant approximate counts — avoids expensive seq scans
-    const { data } = await supabase.rpc("get_table_stats");
+    const { data } = await supabase.rpc("get_system_stats");
     if (data) {
       return {
-        vessels: Math.max(0, data.vessels ?? 0),
-        routes: Math.max(0, data.routes ?? 0),
-        stations: Math.max(0, data.stations ?? 0),
+        vessels:  data.total_vessels  ?? 0,
+        positions: data.total_positions ?? 0,
+        stations: (data.sources ?? []).filter((s: { is_active: boolean }) => s.is_active).length,
       };
     }
-    return { vessels: 0, routes: 0, stations: 0 };
-  } catch {
-    return { vessels: 0, routes: 0, stations: 0 };
-  }
+  } catch {}
+  return { vessels: 0, positions: 0, stations: 0 };
 }
 
 export default async function LandingPage() {
@@ -109,10 +106,9 @@ export default async function LandingPage() {
       <section style={{ borderTop: "1px solid rgba(255,255,255,0.07)", borderBottom: "1px solid rgba(255,255,255,0.07)", padding: "20px 24px", position: "relative", zIndex: 10 }}>
         <div style={{ maxWidth: "1100px", margin: "0 auto", display: "flex", justifyContent: "center", gap: "48px", flexWrap: "wrap" }}>
           {[
-            { value: stats.vessels > 0 ? stats.vessels.toLocaleString("en-US") : "—", label: "vessels live" },
-            { value: stats.routes > 0 ? stats.routes.toLocaleString("en-US") : "—", label: "routes stored" },
-            { value: stats.stations > 0 ? stats.stations.toLocaleString("en-US") : "—", label: "stations" },
-            { value: "47", label: "countries" },
+            { value: stats.vessels  > 0 ? stats.vessels.toLocaleString("en-US")   : "—", label: "unikke skibe" },
+            { value: stats.positions > 0 ? stats.positions.toLocaleString("en-US") : "—", label: "positioner gemt" },
+            { value: stats.stations > 0 ? stats.stations.toLocaleString("en-US")  : "—", label: "aktive kilder" },
           ].map((s) => (
             <div key={s.label} style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
               <span style={{ fontSize: "18px", fontWeight: 700, fontFamily: "monospace", color: "#fff" }}>{s.value}</span>

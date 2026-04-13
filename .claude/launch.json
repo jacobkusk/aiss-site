@@ -2,10 +2,11 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "aiss-dev",
+      "name": "aiss-network",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 3002
+      "port": 3003,
+      "runtimeArgs": ["run", "dev", "--", "-p", "3003"]
     }
   ]
 }

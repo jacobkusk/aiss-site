@@ -4,8 +4,8 @@ import { useEffect, useRef } from "react";
 import { useMap } from "./MapContext";
 import { supabase } from "@/lib/supabase";
 
-// Compact row: [mmsi, lat, lon, speed_kn, cog, heading, nav_status, ship_type, prev_lat, prev_lon, updated_epoch_sec, name]
-type Row = [number, number, number, number, number, number, number, number | null, number, number, number, string];
+// Compact row: [mmsi, lat, lon, speed_kn, cog, heading, freshness, ship_type, prev_lat, prev_lon, updated_epoch_sec, name]
+type Row = [number, number, number, number, number, number, number, number | null, number | null, number | null, number, string];
 
 interface HoverData { x: number; y: number; mmsi: number; name: string | null; sog: number | null; cog: number | null; heading: number | null; lat: number; lon: number; updated_at: string | null; }
 
@@ -50,16 +50,40 @@ export default function VesselLayer({ onVesselClick, onVesselUpdate, selectedMms
       data: { type: "FeatureCollection", features: [] },
     });
 
-    // Dot layer — green circle for all vessels
+    // Dot layer — green circle, opacity driven by freshness
     map.addLayer({
       id: LAYER_DOT,
       type: "circle",
       source: SOURCE,
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 4, 10, 7, 14, 10],
-        "circle-color": "#00e676",
+        // Fresh vessels are green, stale vessels fade to grey
+        "circle-color": [
+          "interpolate", ["linear"], ["get", "freshness"],
+          0, "#4a5568",   // grey when stale
+          30, "#4a5568",
+          50, "#66bb6a",  // dull green
+          100, "#00e676", // bright green when fresh
+        ],
         "circle-stroke-width": 0,
-        "circle-opacity": 0.9,
+<<<<<<< Updated upstream
+        // Opacity driven by freshness: 100 -> 0.9, 10 -> 0.25
+        "circle-opacity": [
+          "interpolate", ["linear"], ["get", "freshness"],
+          0, 0.15,
+          10, 0.25,
+          50, 0.5,
+          100, 0.9,
+=======
+        // Opacity driven by freshness: 100 -> 0.9, 10 -> 0.4 (more visible for old data)
+        "circle-opacity": [
+          "interpolate", ["linear"], ["get", "freshness"],
+          0, 0.4,
+          10, 0.5,
+          50, 0.7,
+          100, 0.95,
+>>>>>>> Stashed changes
+        ],
       },
     });
 
@@ -83,7 +107,14 @@ export default function VesselLayer({ onVesselClick, onVesselUpdate, selectedMms
         "text-color": "#ffffff",
         "text-halo-color": "#020a12",
         "text-halo-width": 1,
-        "text-opacity": 0.9,
+        // COG dot fades with freshness too
+        "text-opacity": [
+          "interpolate", ["linear"], ["get", "freshness"],
+          0, 0,
+          30, 0,
+          50, 0.4,
+          100, 0.9,
+        ],
       },
     });
 
@@ -100,6 +131,23 @@ export default function VesselLayer({ onVesselClick, onVesselUpdate, selectedMms
       },
       paint: {
         "text-color": "#c8dce8",
+<<<<<<< Updated upstream
+        // Labels fade with freshness
+        "text-opacity": [
+          "interpolate", ["linear"], ["get", "freshness"],
+          0, 0,
+          10, 0.15,
+          50, 0.5,
+=======
+        // Labels fade with freshness (increased min opacity for old vessels)
+        "text-opacity": [
+          "interpolate", ["linear"], ["get", "freshness"],
+          0, 0.3,
+          10, 0.4,
+          50, 0.65,
+>>>>>>> Stashed changes
+          100, 1,
+        ],
       },
     });
 
@@ -152,22 +200,34 @@ export default function VesselLayer({ onVesselClick, onVesselUpdate, selectedMms
       const { data, error } = await supabase.rpc("get_live_vessels_compact");
       if (error || !data) { console.log("[vessels] error:", error?.message); return; }
 
-      const rows = data as Row[];
-      console.log("[vessels] fetched:", rows.length);
+      const rows = data as any[];
+      console.log("[vessels] fetched:", rows.length, "data sample:", rows[0]);
 
       const geojson: GeoJSON.FeatureCollection = {
         type: "FeatureCollection",
         features: rows.map((r) => ({
           type: "Feature",
-          geometry: { type: "Point", coordinates: [r[2], r[1]] },
+          geometry: { type: "Point", coordinates: [r.lon, r.lat] },
           properties: {
+<<<<<<< Updated upstream
             mmsi: r[0],
             name: r[11] || null,
             sog: r[3],
             cog: r[4],
             heading: r[5],
+            freshness: r[6] ?? 100,  // 0-100 freshness score from DB
             updated_at: r[10] ? new Date(r[10] * 1000).toISOString() : null,
-            stale: r[10] ? (Date.now() / 1000 - r[10]) > 1800 : false,
+            stale: (r[6] ?? 100) < 30,
+=======
+            mmsi: r.mmsi,
+            name: r.name || null,
+            sog: r.sog,
+            cog: r.cog,
+            heading: r.heading,
+            freshness: r.freshness ?? 100,
+            updated_at: r.updated_epoch_sec ? new Date(r.updated_epoch_sec * 1000).toISOString() : null,
+            stale: (r.freshness ?? 100) < 30,
+>>>>>>> Stashed changes
           },
         })),
       };
@@ -176,17 +236,17 @@ export default function VesselLayer({ onVesselClick, onVesselUpdate, selectedMms
 
       // Opdater selectedVessel løbende hvis den valgte båd er i ny data
       if (selectedMmsiRef.current != null && onVesselUpdateRef.current) {
-        const match = rows.find((r) => r[0] === selectedMmsiRef.current);
+        const match = rows.find((r) => r.mmsi === selectedMmsiRef.current);
         if (match) {
           onVesselUpdateRef.current({
-            mmsi: match[0],
-            name: match[11] || null,
-            lat: match[1],
-            lon: match[2],
-            sog: match[3],
-            cog: match[4],
-            heading: match[5],
-            updated_at: match[10] ? new Date(match[10] * 1000).toISOString() : null,
+            mmsi: match.mmsi,
+            name: match.name || null,
+            lat: match.lat,
+            lon: match.lon,
+            sog: match.sog,
+            cog: match.cog,
+            heading: match.heading,
+            updated_at: match.updated_epoch_sec ? new Date(match.updated_epoch_sec * 1000).toISOString() : null,
           });
         }
       }
@@ -197,17 +257,21 @@ export default function VesselLayer({ onVesselClick, onVesselUpdate, selectedMms
 
     return () => {
       clearInterval(timerRef.current);
-      map.off("click", LAYER_DOT, handleClick);
-      map.off("mousemove", LAYER_DOT, handleMouseMove);
-      map.off("mouseleave", LAYER_DOT, handleMouseLeave);
-      if (map.getLayer(LAYER_LABEL)) map.removeLayer(LAYER_LABEL);
-      if (map.getLayer(LAYER_COG)) map.removeLayer(LAYER_COG);
-      if (map.getLayer(LAYER_DOT)) map.removeLayer(LAYER_DOT);
-      if (map.getSource(SOURCE)) map.removeSource(SOURCE);
+      try {
+        map.off("click", LAYER_DOT, handleClick);
+        map.off("mousemove", LAYER_DOT, handleMouseMove);
+        map.off("mouseleave", LAYER_DOT, handleMouseLeave);
+        if (map.getLayer(LAYER_LABEL)) map.removeLayer(LAYER_LABEL);
+        if (map.getLayer(LAYER_COG)) map.removeLayer(LAYER_COG);
+        if (map.getLayer(LAYER_DOT)) map.removeLayer(LAYER_DOT);
+        if (map.getSource(SOURCE)) map.removeSource(SOURCE);
+      } catch {
+        // Map was already destroyed by parent — nothing to clean up
+      }
     };
   }, [map]);
 
-  // Dim all other vessels when one is selected
+  // Dim all other vessels when one is selected (respects freshness for non-selected)
   useEffect(() => {
     if (!map || !map.getLayer(LAYER_DOT)) return;
     if (selectedMmsi != null) {
@@ -224,10 +288,31 @@ export default function VesselLayer({ onVesselClick, onVesselUpdate, selectedMms
         "case", ["==", ["get", "mmsi"], selectedMmsi], 1, 0,
       ]);
     } else {
-      map.setPaintProperty(LAYER_DOT, "circle-color", "#00e676");
-      map.setPaintProperty(LAYER_DOT, "circle-opacity", 0.9);
-      map.setPaintProperty(LAYER_COG, "text-opacity", 0.9);
-      map.setPaintProperty(LAYER_LABEL, "text-opacity", 1);
+      // Reset to freshness-driven opacity
+      map.setPaintProperty(LAYER_DOT, "circle-color", [
+        "interpolate", ["linear"], ["get", "freshness"],
+        0, "#4a5568", 30, "#4a5568", 50, "#66bb6a", 100, "#00e676",
+      ]);
+      map.setPaintProperty(LAYER_DOT, "circle-opacity", [
+        "interpolate", ["linear"], ["get", "freshness"],
+<<<<<<< Updated upstream
+        0, 0.15, 10, 0.25, 50, 0.5, 100, 0.9,
+=======
+        0, 0.4, 10, 0.5, 50, 0.7, 100, 0.95,
+>>>>>>> Stashed changes
+      ]);
+      map.setPaintProperty(LAYER_COG, "text-opacity", [
+        "interpolate", ["linear"], ["get", "freshness"],
+        0, 0, 30, 0, 50, 0.4, 100, 0.9,
+      ]);
+      map.setPaintProperty(LAYER_LABEL, "text-opacity", [
+        "interpolate", ["linear"], ["get", "freshness"],
+<<<<<<< Updated upstream
+        0, 0, 10, 0.15, 50, 0.5, 100, 1,
+=======
+        0, 0.3, 10, 0.4, 50, 0.65, 100, 1,
+>>>>>>> Stashed changes
+      ]);
     }
   }, [map, selectedMmsi]);
 

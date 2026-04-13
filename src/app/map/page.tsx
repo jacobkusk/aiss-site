@@ -37,10 +37,21 @@ function fmtCoord(v: number, dir: "lat" | "lon") {
 function fmtTime(iso: string | null) {
   if (!iso) return "—";
   const d = new Date(iso);
-  const date = d.toLocaleDateString([], { day: "2-digit", month: "2-digit", year: "numeric" });
   const local = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const utc = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "UTC", hour12: false });
-  return `${date} ${local}\n${utc} UTC`;
+<<<<<<< Updated upstream
+  return `${local}\n${utc} UTC`;
+=======
+
+  // Get local timezone offset
+  const offset = -d.getTimezoneOffset();
+  const tzSign = offset >= 0 ? "+" : "-";
+  const tzHours = Math.floor(Math.abs(offset) / 60);
+  const tzMins = Math.abs(offset) % 60;
+  const tzLabel = `UTC${tzSign}${tzHours}${tzMins ? `:${String(tzMins).padStart(2, "0")}` : ""}`;
+
+  return `${date} ${local} (${tzLabel})\n${utc} UTC`;
+>>>>>>> Stashed changes
 }
 
 export default function MapPage() {

@@ -280,16 +280,20 @@ export default function TrackLayer({ selectedMmsi, onClear, onHover, onWaypointC
     map.on("mouseleave", LAYER_RING, handleWpLeave);
 
     return () => {
-      map.off("click", handleClick);
-      map.off("mousemove", LAYER_DOTS, handleWpMove);
-      map.off("mouseleave", LAYER_DOTS, handleWpLeave);
-      map.off("mousemove", LAYER_RING, handleWpMove);
-      map.off("mouseleave", LAYER_RING, handleWpLeave);
-      [LAYER_FOCUS, LAYER_COG, LAYER_SOG, LAYER_RING, LAYER_DOTS, LAYER_GAP, LAYER_LINE].forEach((id) => {
-        if (map.getLayer(id)) map.removeLayer(id);
-      });
-      if (map.getSource(FOCUS_SOURCE)) map.removeSource(FOCUS_SOURCE);
-      if (map.getSource(SOURCE)) map.removeSource(SOURCE);
+      try {
+        map.off("click", handleClick);
+        map.off("mousemove", LAYER_DOTS, handleWpMove);
+        map.off("mouseleave", LAYER_DOTS, handleWpLeave);
+        map.off("mousemove", LAYER_RING, handleWpMove);
+        map.off("mouseleave", LAYER_RING, handleWpLeave);
+        [LAYER_FOCUS, LAYER_COG, LAYER_SOG, LAYER_RING, LAYER_DOTS, LAYER_GAP, LAYER_LINE].forEach((id) => {
+          if (map.getLayer(id)) map.removeLayer(id);
+        });
+        if (map.getSource(FOCUS_SOURCE)) map.removeSource(FOCUS_SOURCE);
+        if (map.getSource(SOURCE)) map.removeSource(SOURCE);
+      } catch {
+        // Map already destroyed
+      }
       initializedRef.current = false;
     };
   }, [map]);

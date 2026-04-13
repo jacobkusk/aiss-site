@@ -194,14 +194,18 @@ export default function ReplayLayer({ tracks, currentTime, onVesselSingleClick, 
 
     return () => {
       if (clickTimer) clearTimeout(clickTimer);
-      map.off("click", handleClick);
-      map.off("dblclick", LAYER_DOT, handleDblClick);
-      map.off("mousemove", LAYER_DOT, handleMouseMove);
-      map.off("mouseleave", LAYER_DOT, handleMouseLeave);
-      if (map.getLayer(LAYER_LABEL)) map.removeLayer(LAYER_LABEL);
-      if (map.getLayer(LAYER_COG)) map.removeLayer(LAYER_COG);
-      if (map.getLayer(LAYER_DOT)) map.removeLayer(LAYER_DOT);
-      if (map.getSource(SOURCE)) map.removeSource(SOURCE);
+      try {
+        map.off("click", handleClick);
+        map.off("dblclick", LAYER_DOT, handleDblClick);
+        map.off("mousemove", LAYER_DOT, handleMouseMove);
+        map.off("mouseleave", LAYER_DOT, handleMouseLeave);
+        if (map.getLayer(LAYER_LABEL)) map.removeLayer(LAYER_LABEL);
+        if (map.getLayer(LAYER_COG)) map.removeLayer(LAYER_COG);
+        if (map.getLayer(LAYER_DOT)) map.removeLayer(LAYER_DOT);
+        if (map.getSource(SOURCE)) map.removeSource(SOURCE);
+      } catch {
+        // Map already destroyed
+      }
       initializedRef.current = false;
     };
   }, [map]);

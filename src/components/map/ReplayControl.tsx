@@ -81,8 +81,19 @@ export default function ReplayControl({ onLoad, onTimeChange, onClose, currentTi
       p_end:   (dayEnd > now ? now : dayEnd).toISOString(),
     });
     setLoading(false);
-    if (error || !data) { console.error(error); return; }
-    const raw = typeof data === "string" ? JSON.parse(data) : data;
+    if (error) { console.error("[replay] rpc error:", error); return; }
+    if (!data) { console.warn("[replay] no data returned"); return; }
+
+    // Supabase JS may wrap scalar JSON in various formats — unwrap defensively
+    let raw: any = data;
+    if (typeof raw === "string") try { raw = JSON.parse(raw); } catch { /* keep as-is */ }
+    if (Array.isArray(raw)) raw = raw[0];
+    if (typeof raw === "string") try { raw = JSON.parse(raw); } catch { /* keep as-is */ }
+    if (raw?.get_tracks_in_range != null) raw = raw.get_tracks_in_range;
+    if (typeof raw === "string") try { raw = JSON.parse(raw); } catch { /* keep as-is */ }
+    raw = raw ?? {};
+
+    console.log("[replay] loaded:", raw.points?.length ?? 0, "points");
     const pts: { mmsi: number; name: string | null; lon: number; lat: number; sog: number | null; cog: number | null; t: number }[] = raw.points ?? [];
 
     const map: TrackMap = new Map();
@@ -96,9 +107,15 @@ export default function ReplayControl({ onLoad, onTimeChange, onClose, currentTi
     const s = dayStart.getTime();
     const e = Math.min(dayEnd.getTime(), now.getTime());
     onLoad(map, s, e);
-    // Start at noon UTC, clamped to available range
-    const noonUTC = new Date(dateStr + "T12:00:00Z").getTime();
-    onTimeChange(Math.max(s, Math.min(noonUTC, e)));
+    // Start at beginning of available data (first point), or start-of-day
+    let firstPointMs = s;
+    map.forEach((v) => {
+      if (v.points.length > 0) {
+        const pt = v.points[0].t * 1000;
+        if (firstPointMs === s || pt < firstPointMs) firstPointMs = pt;
+      }
+    });
+    onTimeChange(Math.max(s, firstPointMs));
   }, [dateStr, onLoad, onTimeChange]);
 
   const handleScrub = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

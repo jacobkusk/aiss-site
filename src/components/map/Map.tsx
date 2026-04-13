@@ -39,6 +39,13 @@ export default function Map({ children }: Props) {
 
     (window as any).__map = m;
 
+    // Disable right-click rotation so browser context menu works (F12 devtools)
+    m.dragRotate.disable();
+    m.touchZoomRotate.disableRotation();
+    // MapLibre blocks contextmenu — force-restore native right-click
+    const canvas = m.getCanvasContainer();
+    canvas.addEventListener("contextmenu", (e) => { e.stopPropagation(); }, true);
+
     m.on("load", () => setMap(m));
 
     return () => {
