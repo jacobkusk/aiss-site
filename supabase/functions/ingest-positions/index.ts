@@ -1,6 +1,27 @@
-// ingest-positions — Supabase Edge Function (v2)
-// Append-only ingest. No buffer, no flush, no smart filtering.
-// Normalise → validate → INSERT positions_v2 + UPSERT entity_last via ingest_positions_v2 RPC.
+// ingest-positions — Supabase Edge Function (v7)
+// Append-only ingest with full-accounting rejection observability.
+//
+// Normalise → validate → INSERT positions_v2 + UPSERT entity_last via
+// ingest_positions_v2 RPC. Rejections are classified per reason and
+// persisted to ingest_stats.reject_reasons so PI rejection rate is visible
+// in SQL, not just in the Edge Function console.
+//
+// Changes vs v6:
+//   - Fix: supabase-js rpc() returns a PostgrestBuilder (PromiseLike), not
+//     a real Promise, so `.catch()` is undefined. Wrapped ensure_partition
+//     calls in try/catch instead — this was the root cause of the 500
+//     storm observed Apr 16 11:50+ UTC.
+//
+// Changes vs v2:
+//   - Widened MMSI range: 1 ≤ mmsi ≤ 999_999_999
+//     (accepts base stations 00MID…, SAR aircraft 111MID…, AtoN 99MID…,
+//     SART/MOB/EPIRB 97xMID…, which pyais strips leading zeros from.)
+//   - Zero-pads MMSI to 9 digits so entities.domain_meta.mmsi is consistent.
+//   - Per-reason counters: mmsi_invalid, invalid_coords, out_of_bounds,
+//     null_island, teleportation, duplicate_within_batch.
+//   - Passes p_edge_rejected + p_edge_reasons to the RPC for persistence.
+//   - Top-level try/catch surfaces unhandled exceptions in the HTTP body.
+//
 // Deno runtime.
 
 import { createClient } from "npm:@supabase/supabase-js@2"
@@ -25,22 +46,33 @@ interface RawPosition {
 }
 
 interface NormalizedRow {
-  mmsi: number
+  mmsi: number            // numeric form (leading zeros stripped)
+  mmsi_str: string        // 9-digit zero-padded canonical form
   lat: number
   lon: number
-  t: number           // unix epoch SECONDS
-  sog: number | null   // knots (original)
+  t: number               // unix epoch seconds
+  sog: number | null      // knots (original)
   cog: number | null
   hdg: number | null
   vessel_name: string | null
 }
 
+type RejectReason =
+  | "mmsi_invalid"
+  | "invalid_coords"
+  | "out_of_bounds"
+  | "null_island"
+  | "teleportation"
+  | "duplicate_within_batch"
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_SPEED_MS = 30              // ~58 knots — hard reject
+const MAX_SPEED_MS = 30              // ~58 knots — hard reject on intra-batch hops
 const NULL_ISLAND_THRESHOLD = 0.001
+const DEDUP_WINDOW_SEC = 1           // same MMSI within 1 s and < 10 m → dup
+const DEDUP_DIST_M = 10
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,23 +94,40 @@ function haversine(lon1: number, lat1: number, lon2: number, lat2: number): numb
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+function padMmsi(n: number): string {
+  return String(Math.trunc(n)).padStart(9, "0")
+}
+
 // ---------------------------------------------------------------------------
 // Normalise + validate
 // ---------------------------------------------------------------------------
 
 function normalizeAndValidate(
   raw: RawPosition,
-  prevByMmsi: Map<number, { lat: number; lon: number; t: number }>
+  prevByMmsi: Map<number, { lat: number; lon: number; t: number }>,
+  bump: (reason: RejectReason) => void,
 ): NormalizedRow | null {
-  // --- Extract with multiple naming conventions ---
   const mmsi = toNum(raw.mmsi ?? raw.MMSI)
-  if (mmsi == null || mmsi < 100000000 || mmsi > 999999999) return null
+  // Widened range — accept base stations, AtoN, SAR aircraft, beacons.
+  if (mmsi == null || !Number.isFinite(mmsi) || mmsi < 1 || mmsi > 999999999) {
+    bump("mmsi_invalid")
+    return null
+  }
 
   const lat = toNum(raw.lat ?? raw.latitude ?? raw.Latitude)
   const lon = toNum(raw.lon ?? raw.longitude ?? raw.Longitude ?? raw.lng)
-  if (lat == null || lon == null) return null
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null
-  if (Math.abs(lat) < NULL_ISLAND_THRESHOLD && Math.abs(lon) < NULL_ISLAND_THRESHOLD) return null
+  if (lat == null || lon == null) {
+    bump("invalid_coords")
+    return null
+  }
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    bump("out_of_bounds")
+    return null
+  }
+  if (Math.abs(lat) < NULL_ISLAND_THRESHOLD && Math.abs(lon) < NULL_ISLAND_THRESHOLD) {
+    bump("null_island")
+    return null
+  }
 
   // Timestamp: accept unix seconds, unix ms, or ISO string
   let t: number
@@ -89,16 +138,27 @@ function normalizeAndValidate(
     t = new Date(rawT).getTime() / 1000
   } else {
     const num = Number(rawT)
-    // If > 1e12, assume milliseconds
     t = num > 1e12 ? num / 1000 : num
   }
 
-  // Anti-teleportation (within batch)
+  // Intra-batch anti-teleportation + dedup
   const prev = prevByMmsi.get(mmsi)
   if (prev) {
     const dist = haversine(prev.lon, prev.lat, lon, lat)
-    const dtSec = t - prev.t
-    if (dtSec > 0 && dist / dtSec > MAX_SPEED_MS) return null
+    const dtSec = Math.abs(t - prev.t)
+
+    // Dual-channel duplicate: same MMSI, near-same spot, near-same time.
+    // Drop silently as "duplicate" rather than teleport.
+    if (dtSec <= DEDUP_WINDOW_SEC && dist <= DEDUP_DIST_M) {
+      bump("duplicate_within_batch")
+      return null
+    }
+
+    // Only flag teleportation when we have real forward motion to compare.
+    if (dtSec > 0 && dist / dtSec > MAX_SPEED_MS) {
+      bump("teleportation")
+      return null
+    }
   }
 
   const sog = toNum(raw.speed ?? raw.sog ?? raw.SOG)
@@ -106,10 +166,14 @@ function normalizeAndValidate(
   const hdg = toNum(raw.heading ?? raw.HDG ?? raw.hdg)
   const vessel_name = (raw.shipname ?? raw.vessel_name ?? raw.name ?? null) as string | null
 
-  // Update prev for anti-teleportation
   prevByMmsi.set(mmsi, { lat, lon, t })
 
-  return { mmsi, lat, lon, t, sog, cog, hdg, vessel_name: vessel_name || null }
+  return {
+    mmsi,
+    mmsi_str: padMmsi(mmsi),
+    lat, lon, t, sog, cog, hdg,
+    vessel_name: vessel_name ? String(vessel_name).trim().replace(/@+$/, "").trim() || null : null,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +181,20 @@ function normalizeAndValidate(
 // ---------------------------------------------------------------------------
 
 Deno.serve(async (req: Request) => {
+  try {
+    return await handle(req)
+  } catch (e) {
+    const err = e as Error
+    console.error("[ingest-positions] FATAL:", err.message, err.stack)
+    return new Response(JSON.stringify({
+      error: "unhandled",
+      message: err.message,
+      stack: err.stack?.split("\n").slice(0, 8),
+    }), { status: 500, headers: { "Content-Type": "application/json" } })
+  }
+})
+
+async function handle(req: Request): Promise<Response> {
   // CORS
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -139,7 +217,6 @@ Deno.serve(async (req: Request) => {
     return Response.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  // Source name from header (default: pi4_rtlsdr)
   const sourceName = req.headers.get("x-source") ?? "pi4_rtlsdr"
 
   let body: unknown
@@ -149,7 +226,6 @@ Deno.serve(async (req: Request) => {
     return Response.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
-  // Accept { positions: [...] } or bare array
   const rawRows: RawPosition[] = Array.isArray(body)
     ? body
     : Array.isArray((body as Record<string, unknown>).positions)
@@ -160,39 +236,72 @@ Deno.serve(async (req: Request) => {
     return Response.json({ error: "No positions in payload" }, { status: 400 })
   }
 
+  // --- Per-reason counters ---
+  const reasons: Record<RejectReason, number> = {
+    mmsi_invalid: 0,
+    invalid_coords: 0,
+    out_of_bounds: 0,
+    null_island: 0,
+    teleportation: 0,
+    duplicate_within_batch: 0,
+  }
+  const bump = (reason: RejectReason) => { reasons[reason]++ }
+
   // --- Normalise + validate all rows ---
   const prevByMmsi = new Map<number, { lat: number; lon: number; t: number }>()
   const valid: NormalizedRow[] = []
-  let rejected = 0
 
   for (const raw of rawRows) {
-    const row = normalizeAndValidate(raw, prevByMmsi)
-    if (row) {
-      valid.push(row)
-    } else {
-      rejected++
-    }
+    const row = normalizeAndValidate(raw, prevByMmsi, bump)
+    if (row) valid.push(row)
   }
 
-  if (valid.length === 0) {
-    return Response.json({ accepted: 0, rejected, source: sourceName })
-  }
+  const edgeRejected =
+    reasons.mmsi_invalid + reasons.invalid_coords + reasons.out_of_bounds +
+    reasons.null_island + reasons.teleportation + reasons.duplicate_within_batch
 
-  // --- Ensure today's partition exists ---
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
   )
 
-  // Ensure partition for today and tomorrow (cheap idempotent call)
+  // Early exit: nothing valid — still log the batch so rejection rate is visible.
+  if (valid.length === 0) {
+    const { error: logErr } = await supabase.rpc("ingest_positions_v2", {
+      p_rows: [],
+      p_source_name: sourceName,
+      p_edge_rejected: edgeRejected,
+      p_edge_reasons: reasons,
+    })
+    if (logErr) console.error("[ingest-positions] empty-batch log error:", logErr.message)
+
+    console.log(
+      `[ingest-positions] source=${sourceName} batch=${rawRows.length} accepted=0 ` +
+      `edge_rejected=${edgeRejected} reasons=${JSON.stringify(reasons)}`
+    )
+    return Response.json({
+      accepted: 0,
+      rejected: edgeRejected,
+      edge_rejected: edgeRejected,
+      rpc_rejected: 0,
+      reject_reasons: reasons,
+      source: sourceName,
+    })
+  }
+
+  // Ensure partition for today and tomorrow (cheap idempotent call).
+  // NOTE: supabase-js rpc() returns a PostgrestBuilder (PromiseLike), NOT a Promise,
+  // so `.catch()` does not exist on it. Must wrap in try/catch instead.
   const today = new Date()
   const tomorrow = new Date(today.getTime() + 86400000)
-  await supabase.rpc("ensure_partition", { p_date: today.toISOString().slice(0, 10) }).catch(() => {})
-  await supabase.rpc("ensure_partition", { p_date: tomorrow.toISOString().slice(0, 10) }).catch(() => {})
+  try { await supabase.rpc("ensure_partition", { p_date: today.toISOString().slice(0, 10) }) } catch { /* idempotent */ }
+  try { await supabase.rpc("ensure_partition", { p_date: tomorrow.toISOString().slice(0, 10) }) } catch { /* idempotent */ }
 
-  // --- Call ingest_positions_v2 RPC ---
+  // Build RPC rows — pass numeric mmsi (RPC pads internally) but include padded
+  // form for debugging round-trip consistency.
   const rpcRows = valid.map(row => ({
     mmsi: row.mmsi,
+    mmsi_str: row.mmsi_str,
     lat: row.lat,
     lon: row.lon,
     t: row.t,
@@ -205,6 +314,8 @@ Deno.serve(async (req: Request) => {
   const { data: rpcResult, error: rpcError } = await supabase.rpc("ingest_positions_v2", {
     p_rows: rpcRows,
     p_source_name: sourceName,
+    p_edge_rejected: edgeRejected,
+    p_edge_reasons: reasons,
   })
 
   if (rpcError) {
@@ -212,23 +323,34 @@ Deno.serve(async (req: Request) => {
     return Response.json({ error: "Storage failed", detail: rpcError.message }, { status: 500 })
   }
 
-  const result = rpcResult as { accepted?: number; rejected?: number; error?: string } | null
+  const result = rpcResult as {
+    accepted?: number
+    rejected?: number
+    reject_reasons?: Record<string, number>
+    error?: string
+  } | null
 
   if (result?.error) {
     return Response.json({ error: result.error }, { status: 400 })
   }
 
-  const totalAccepted = result?.accepted ?? valid.length
-  const totalRejected = rejected + (result?.rejected ?? 0)
+  const rpcAccepted = result?.accepted ?? valid.length
+  const rpcRejected = result?.rejected ?? 0
+  const totalRejected = edgeRejected + rpcRejected
 
   console.log(
-    `[ingest-positions] source=${sourceName} batch=${rawRows.length}`,
-    `accepted=${totalAccepted} rejected=${totalRejected}`
+    `[ingest-positions] source=${sourceName} batch=${rawRows.length} ` +
+    `accepted=${rpcAccepted} edge_rejected=${edgeRejected} rpc_rejected=${rpcRejected} ` +
+    `reasons=${JSON.stringify(reasons)}`
   )
 
   return new Response(JSON.stringify({
-    accepted: totalAccepted,
+    accepted: rpcAccepted,
     rejected: totalRejected,
+    edge_rejected: edgeRejected,
+    rpc_rejected: rpcRejected,
+    reject_reasons: reasons,
+    rpc_reject_reasons: result?.reject_reasons ?? {},
     source: sourceName,
   }), {
     status: 200,
@@ -237,4 +359,4 @@ Deno.serve(async (req: Request) => {
       "Access-Control-Allow-Origin": "*",
     },
   })
-})
+}

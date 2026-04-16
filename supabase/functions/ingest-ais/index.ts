@@ -1,79 +1,53 @@
-// ingest-ais — Supabase Edge Function
-// Modtager AIS-positioner fra Pi, normaliserer, validerer, gemmer via ingest_ais_batch RPC
-// Deno runtime — ingen Node.js imports
+// ingest-ais — Supabase Edge Function (v5)
+// REDIRECTED to v2 pipeline: Pi sender stadig hertil.
+// Vi normaliserer og kalder ingest_positions_v2.
+// Ingen ændring på Pi nødvendig.
+//
+// Changes vs v4:
+//   - Top-level try/catch wrapper (regel 1.2 i docs/EDGE-FUNCTION-RUNBOOK.md)
+//     så uhåndterede exceptions propageres i HTTP body med stack.
+//   - Fix: supabase-js rpc() returnerer PostgrestBuilder (PromiseLike),
+//     ikke Promise — `.catch()` er undefined. ensure_partition-kald
+//     er nu wrapped i try/catch. Samme bug som ramte ingest-positions v5/v6.
+//
+// Deno runtime.
 
 import { createClient } from "npm:@supabase/supabase-js@2"
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface RawAisPosition {
-  mmsi?: unknown
-  MMSI?: unknown
-  lat?: unknown
-  latitude?: unknown
-  Latitude?: unknown
-  lon?: unknown
-  longitude?: unknown
-  Longitude?: unknown
-  speed?: unknown
-  sog?: unknown
-  SOG?: unknown
-  course?: unknown
-  cog?: unknown
-  COG?: unknown
-  heading?: unknown
-  HDG?: unknown
-  rot?: unknown
-  ROT?: unknown
-  nav_status?: unknown
-  status?: unknown
-  timestamp?: unknown
-  shipname?: unknown
-  vessel_name?: unknown
-  ship_type?: unknown
-  type_and_cargo?: unknown
-  country?: unknown
-  imo?: unknown
+interface RawPosition {
+  mmsi?: unknown; MMSI?: unknown
+  lat?: unknown; latitude?: unknown; Latitude?: unknown
+  lon?: unknown; longitude?: unknown; Longitude?: unknown; lng?: unknown
+  speed?: unknown; sog?: unknown; SOG?: unknown
+  course?: unknown; cog?: unknown; COG?: unknown
+  heading?: unknown; HDG?: unknown; hdg?: unknown
+  rot?: unknown; ROT?: unknown
+  nav_status?: unknown; status?: unknown
+  timestamp?: unknown; t?: unknown
+  shipname?: unknown; vessel_name?: unknown; name?: unknown
+  ship_type?: unknown; type_and_cargo?: unknown
+  country?: unknown; imo?: unknown
 }
 
-interface NormalizedPosition {
-  mmsi: string
+interface NormalizedRow {
+  mmsi: number
   lat: number
   lon: number
-  alt: number           // AIS = 0 altid
-  t: number             // unix ms
-  speed_ms: number      // m/s (konverteret fra knob)
-  sog_kn: number        // original knob (gemmes i domain_fields)
-  bearing: number       // COG grader
-  heading: number
-  rot: number
-  nav_status: unknown
+  t: number
+  sog: number | null
+  cog: number | null
+  hdg: number | null
   vessel_name: string | null
-  vessel_type: number | null
-  imo: number | null
-  flag: string | null
 }
 
-interface RejectedPosition {
-  index: number
-  mmsi: unknown
-  reason: string
-}
-
-// ---------------------------------------------------------------------------
-// Konstanter
-// ---------------------------------------------------------------------------
-
-const MAX_SPEED_MS = 30          // ~58 knob — absolutt grænse for AIS
-const MIN_MOVEMENT_M = 2         // under 2m = GPS-støj, skip
-const DEDUP_WINDOW_SEC = 30      // samme position inden for 30s = skip (støj, ikke stop)
+const MAX_SPEED_MS = 30
 const NULL_ISLAND_THRESHOLD = 0.001
 
-// ---------------------------------------------------------------------------
-// Hjælpefunktioner
-// ---------------------------------------------------------------------------
+function toNum(v: unknown): number | null {
+  if (v == null) return null
+  const n = Number(v)
+  return isNaN(n) ? null : n
+}
 
 function haversine(lon1: number, lat1: number, lon2: number, lat2: number): number {
   const R = 6371000
@@ -85,95 +59,45 @@ function haversine(lon1: number, lat1: number, lon2: number, lat2: number): numb
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-function isValidMmsi(mmsi: unknown): boolean {
-  if (typeof mmsi !== "number" && typeof mmsi !== "string") return false
-  return /^\d{9}$/.test(String(mmsi))
-}
+function normalizeAndValidate(
+  raw: RawPosition,
+  prevByMmsi: Map<number, { lat: number; lon: number; t: number }>
+): NormalizedRow | null {
+  const mmsi = toNum(raw.mmsi ?? raw.MMSI)
+  if (mmsi == null || mmsi < 100000000 || mmsi > 999999999) return null
 
-function toNum(v: unknown, fallback = 0): number {
-  const n = Number(v)
-  return isNaN(n) ? fallback : n
-}
-
-// ---------------------------------------------------------------------------
-// Normalisering — håndter alle kendte felt-konventioner fra AIS-decoders
-// ---------------------------------------------------------------------------
-
-function normalize(raw: RawAisPosition, idx: number): NormalizedPosition | { error: string; index: number } {
-  const mmsi = raw.mmsi ?? raw.MMSI
   const lat = toNum(raw.lat ?? raw.latitude ?? raw.Latitude)
-  const lon = toNum(raw.lon ?? raw.longitude ?? raw.Longitude)
-  const sog_kn = toNum(raw.speed ?? raw.sog ?? raw.SOG)
-  const cog = toNum(raw.course ?? raw.cog ?? raw.COG)
-  const heading = toNum(raw.heading ?? raw.HDG, 511)
-  const rot = toNum(raw.rot ?? raw.ROT, -128)
-  const nav_status = raw.nav_status ?? raw.status ?? null
-  const t = raw.timestamp ? new Date(raw.timestamp as string).getTime() : Date.now()
+  const lon = toNum(raw.lon ?? raw.longitude ?? raw.Longitude ?? raw.lng)
+  if (lat == null || lon == null) return null
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null
+  if (Math.abs(lat) < NULL_ISLAND_THRESHOLD && Math.abs(lon) < NULL_ISLAND_THRESHOLD) return null
 
-  if (!isValidMmsi(mmsi)) {
-    return { error: "invalid_mmsi", index: idx }
+  let t: number
+  const rawT = raw.t ?? raw.timestamp
+  if (rawT == null) {
+    t = Date.now() / 1000
+  } else if (typeof rawT === "string") {
+    t = new Date(rawT).getTime() / 1000
+  } else {
+    const num = Number(rawT)
+    t = num > 1e12 ? num / 1000 : num
   }
 
-  return {
-    mmsi: String(mmsi),
-    lat,
-    lon,
-    alt: 0,
-    t,
-    speed_ms: sog_kn * 0.514444,
-    sog_kn,
-    bearing: cog,
-    heading,
-    rot,
-    nav_status,
-    vessel_name: (raw.shipname ?? raw.vessel_name ?? null) as string | null,
-    vessel_type: raw.ship_type != null ? toNum(raw.ship_type) : raw.type_and_cargo != null ? toNum(raw.type_and_cargo) : null,
-    imo: raw.imo != null ? toNum(raw.imo) : null,
-    flag: (raw.country ?? null) as string | null,
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Validering — kører på hvert punkt individuelt
-// Anti-teleportation kræver forrige punkt for samme MMSI
-// ---------------------------------------------------------------------------
-
-function validate(
-  pos: NormalizedPosition,
-  idx: number,
-  prevByMmsi: Map<string, NormalizedPosition>
-): { ok: true } | { ok: false; reason: string } {
-  // Null Island
-  if (Math.abs(pos.lat) < NULL_ISLAND_THRESHOLD && Math.abs(pos.lon) < NULL_ISLAND_THRESHOLD) {
-    return { ok: false, reason: "null_island" }
-  }
-
-  // Koordinat-grænser
-  if (pos.lat < -90 || pos.lat > 90 || pos.lon < -180 || pos.lon > 180) {
-    return { ok: false, reason: "invalid_coordinates" }
-  }
-
-  // Anti-teleportation — sammenlign med forrige punkt for dette MMSI i batchen
-  const prev = prevByMmsi.get(pos.mmsi)
+  const prev = prevByMmsi.get(mmsi)
   if (prev) {
-    const dist = haversine(prev.lon, prev.lat, pos.lon, pos.lat)
-    const dtSec = (pos.t - prev.t) / 1000
-
-    if (dtSec > 0) {
-      const impliedSpeed = dist / dtSec
-      if (impliedSpeed > MAX_SPEED_MS) {
-        return { ok: false, reason: "teleportation" }
-      }
-    }
-
-    // Afvis kun GPS-støj: identisk position inden for 30 sek
-    // Stoppede både ved kaj skal gemmes — det er information
-    if (dist < MIN_MOVEMENT_M && dtSec < DEDUP_WINDOW_SEC) {
-      return { ok: false, reason: "duplicate" }
-    }
+    const dist = haversine(prev.lon, prev.lat, lon, lat)
+    const dtSec = t - prev.t
+    if (dtSec > 0 && dist / dtSec > MAX_SPEED_MS) return null
   }
 
-  return { ok: true }
+  const sog = toNum(raw.speed ?? raw.sog ?? raw.SOG)
+  const cog = toNum(raw.course ?? raw.cog ?? raw.COG)
+  const hdg = toNum(raw.heading ?? raw.HDG ?? raw.hdg)
+  const vessel_name = (raw.shipname ?? raw.vessel_name ?? raw.name ?? null) as string | null
+
+  prevByMmsi.set(mmsi, { lat, lon, t })
+
+  return { mmsi, lat, lon, t, sog, cog, hdg, vessel_name: vessel_name || null }
 }
 
 // ---------------------------------------------------------------------------
@@ -181,164 +105,128 @@ function validate(
 // ---------------------------------------------------------------------------
 
 Deno.serve(async (req: Request) => {
-  // CORS preflight
+  try {
+    return await handle(req)
+  } catch (e) {
+    const err = e as Error
+    console.error("[ingest-ais] FATAL:", err.message, err.stack)
+    return new Response(JSON.stringify({
+      error: "unhandled",
+      message: err.message,
+      stack: err.stack?.split("\n").slice(0, 8),
+    }), { status: 500, headers: { "Content-Type": "application/json" } })
+  }
+})
+
+async function handle(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key, x-source",
       },
     })
   }
 
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { "Content-Type": "application/json" },
-    })
+    return Response.json({ error: "Method not allowed" }, { status: 405 })
   }
 
-  // Auth — tjek API key header
   const apiKey = req.headers.get("x-api-key") ?? req.headers.get("apikey")
   const expectedKey = Deno.env.get("INGEST_API_KEY")
   if (expectedKey && apiKey !== expectedKey) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    })
+    return Response.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  const sourceName = req.headers.get("x-source") ?? "pi4_rtlsdr"
 
   let body: unknown
   try {
     body = await req.json()
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    })
+    return Response.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
-  // Acceptér { positions: [...] } eller direkte array
-  const rawPositions: RawAisPosition[] = Array.isArray(body)
+  const rawRows: RawPosition[] = Array.isArray(body)
     ? body
     : Array.isArray((body as Record<string, unknown>).positions)
-      ? (body as Record<string, unknown>).positions as RawAisPosition[]
+      ? (body as Record<string, unknown>).positions as RawPosition[]
       : []
 
-  if (rawPositions.length === 0) {
-    return new Response(JSON.stringify({ error: "No positions in payload" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    })
+  if (rawRows.length === 0) {
+    return Response.json({ error: "No positions in payload" }, { status: 400 })
   }
 
-  // ---------------------------------------------------------------------------
-  // Normaliser alle positioner
-  // ---------------------------------------------------------------------------
+  const prevByMmsi = new Map<number, { lat: number; lon: number; t: number }>()
+  const valid: NormalizedRow[] = []
+  let rejected = 0
 
-  const normalized: NormalizedPosition[] = []
-  const rejected: RejectedPosition[] = []
-
-  for (let i = 0; i < rawPositions.length; i++) {
-    const result = normalize(rawPositions[i], i)
-    if ("error" in result) {
-      rejected.push({ index: i, mmsi: rawPositions[i].mmsi ?? rawPositions[i].MMSI, reason: result.error })
+  for (const raw of rawRows) {
+    const row = normalizeAndValidate(raw, prevByMmsi)
+    if (row) {
+      valid.push(row)
     } else {
-      normalized.push(result)
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Validér — anti-teleportation bruger forrige punkt per MMSI i denne batch
-  // ---------------------------------------------------------------------------
-
-  const prevByMmsi = new Map<string, NormalizedPosition>()
-  const valid: NormalizedPosition[] = []
-
-  for (let i = 0; i < normalized.length; i++) {
-    const pos = normalized[i]
-    const result = validate(pos, i, prevByMmsi)
-
-    if (!result.ok) {
-      rejected.push({ index: i, mmsi: pos.mmsi, reason: result.reason })
-    } else {
-      valid.push(pos)
-      prevByMmsi.set(pos.mmsi, pos)
+      rejected++
     }
   }
 
   if (valid.length === 0) {
-    console.log(`[ingest-ais] all ${rawPositions.length} positions rejected:`, rejected)
-    return new Response(JSON.stringify({
-      accepted: 0,
-      rejected: rejected.length,
-      rejected_reasons: rejected,
-    }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    })
+    return Response.json({ accepted: 0, rejected, source: sourceName })
   }
-
-  // ---------------------------------------------------------------------------
-  // Storage — kald ingest_ais_batch RPC som håndterer:
-  //   - find/opret entity
-  //   - append til åben track (gap-detektion i SQL)
-  //   - opdatér entity_last
-  // Sender normaliserede rows — SQL-funktionen forventer:
-  //   mmsi, lat, lon, sog (knob), cog, timestamp (ISO), vessel_name, vessel_type
-  // ---------------------------------------------------------------------------
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
   )
 
-  const rpcRows = valid.map(pos => ({
-    mmsi: pos.mmsi,
-    lat: pos.lat,
-    lon: pos.lon,
-    sog: pos.sog_kn,                             // knob — SQL konverterer
-    cog: pos.bearing,
-    timestamp: new Date(pos.t).toISOString(),
-    vessel_name: pos.vessel_name,
-    vessel_type: pos.vessel_type,
-    imo: pos.imo,
-    country: pos.flag,
+  // Ensure partition for today and tomorrow (cheap idempotent call).
+  // NOTE: supabase-js rpc() returns a PostgrestBuilder (PromiseLike), NOT a Promise,
+  // so `.catch()` does not exist on it. Must wrap in try/catch instead.
+  const today = new Date()
+  const tomorrow = new Date(today.getTime() + 86400000)
+  try { await supabase.rpc("ensure_partition", { p_date: today.toISOString().slice(0, 10) }) } catch { /* idempotent */ }
+  try { await supabase.rpc("ensure_partition", { p_date: tomorrow.toISOString().slice(0, 10) }) } catch { /* idempotent */ }
+
+  const rpcRows = valid.map(row => ({
+    mmsi: row.mmsi,
+    lat: row.lat,
+    lon: row.lon,
+    t: row.t,
+    sog: row.sog,
+    cog: row.cog,
+    hdg: row.hdg,
+    vessel_name: row.vessel_name,
   }))
 
-  const { data: rpcResult, error: rpcError } = await supabase.rpc("ingest_ais_batch", {
+  const { data: rpcResult, error: rpcError } = await supabase.rpc("ingest_positions_v2", {
     p_rows: rpcRows,
+    p_source_name: sourceName,
   })
 
   if (rpcError) {
-    console.error("[ingest-ais] ingest_ais_batch error:", rpcError)
-    return new Response(JSON.stringify({
-      error: "Storage failed",
-      detail: rpcError.message,
-    }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    })
+    console.error("[ingest-ais→v2] RPC error:", rpcError.message)
+    return Response.json({ error: "Storage failed", detail: rpcError.message }, { status: 500 })
   }
 
-  const result = rpcResult as { accepted: number; rejected: number } | null
+  const result = rpcResult as { accepted?: number; rejected?: number; error?: string } | null
+
+  if (result?.error) {
+    return Response.json({ error: result.error }, { status: 400 })
+  }
+
+  const totalAccepted = result?.accepted ?? valid.length
+  const totalRejected = rejected + (result?.rejected ?? 0)
 
   console.log(
-    `[ingest-ais] batch=${rawPositions.length} normalized=${normalized.length}`,
-    `pre_rejected=${rejected.length} sql_accepted=${result?.accepted ?? "?"} sql_rejected=${result?.rejected ?? "?"}`
+    `[ingest-ais→v2] source=${sourceName} batch=${rawRows.length}`,
+    `accepted=${totalAccepted} rejected=${totalRejected}`
   )
 
-  // Log afviste for debugging
-  if (rejected.length > 0) {
-    console.log("[ingest-ais] pre-rejected:", JSON.stringify(rejected))
-  }
-
   return new Response(JSON.stringify({
-    accepted: result?.accepted ?? valid.length,
-    rejected: rejected.length + (result?.rejected ?? 0),
-    pre_validation_rejected: rejected,
-    source: "pi_ais",
+    accepted: totalAccepted,
+    rejected: totalRejected,
+    source: sourceName,
   }), {
     status: 200,
     headers: {
@@ -346,4 +234,4 @@ Deno.serve(async (req: Request) => {
       "Access-Control-Allow-Origin": "*",
     },
   })
-})
+}

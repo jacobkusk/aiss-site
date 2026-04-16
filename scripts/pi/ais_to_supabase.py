@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
 ais_to_supabase.py — Pi AIS collector
-Sender AIS-positioner til aiss ingest-ais Edge Function.
+Sender AIS-positioner til aiss `ingest-positions` Edge Function (v7+).
 Kører som systemd service på Raspberry Pi.
+
+Per-reason rejection stats læses fra response["reject_reasons"] +
+response["rpc_reject_reasons"] og logges pr. flush + total ved afslutning.
+Dermed er "33 % rejected"-mysteriet fra april 2026 ikke længere anonymt.
 """
 
 import threading
@@ -53,6 +57,13 @@ position_buffer: list[dict] = []
 buffer_lock = threading.Lock()
 stats = {"sent": 0, "accepted": 0, "rejected": 0, "errors": 0}
 
+# Cumulative reject-reason counters — populated from the Edge Function response.
+# Keys match the ingest-positions reject reasons (see docs/EDGE-FUNCTION-RUNBOOK.md §1.3):
+#   mmsi_invalid, invalid_coords, out_of_bounds, null_island,
+#   teleportation, duplicate_within_batch (edge-side)
+#   + any RPC-side reasons returned in rpc_reject_reasons
+reject_reason_totals: dict[str, int] = {}
+
 # ---------------------------------------------------------------------------
 # HTTP helpers
 # ---------------------------------------------------------------------------
@@ -64,8 +75,24 @@ SESSION.headers.update({
     "Authorization": f"Bearer {SUPABASE_KEY}",
 })
 
-def post_edge_function(positions: list[dict]) -> tuple[int, int]:
-    """Send til ingest-ais Edge Function. Returnerer (accepted, rejected)."""
+def post_edge_function(positions: list[dict]) -> dict:
+    """Send til ingest-positions Edge Function.
+
+    Returnerer hele JSON-svaret så callers kan læse både totals og
+    per-reason breakdown. På HTTP-fejl returneres et tomt svar med
+    accepted=rejected=0 så flush()-loggen ikke crasher.
+
+    Example successful response (ingest-positions v7+):
+        {
+          "accepted": 42,
+          "rejected": 3,
+          "edge_rejected": 2,
+          "rpc_rejected": 1,
+          "reject_reasons": {"duplicate_within_batch": 2, ...},
+          "rpc_reject_reasons": {...},
+          "source": "pi4_rtlsdr"
+        }
+    """
     try:
         resp = SESSION.post(
             EDGE_FUNCTION_URL,
@@ -73,14 +100,26 @@ def post_edge_function(positions: list[dict]) -> tuple[int, int]:
             timeout=10,
         )
         resp.raise_for_status()
-        data = resp.json()
-        return data.get("accepted", 0), data.get("rejected", 0)
+        return resp.json()
     except requests.exceptions.RequestException as e:
         log.error(f"[edge] HTTP fejl: {e}")
-        return 0, 0
+        return {"accepted": 0, "rejected": 0}
     except Exception as e:
         log.error(f"[edge] Uventet fejl: {e}")
-        return 0, 0
+        return {"accepted": 0, "rejected": 0}
+
+
+def merge_reject_reasons(response: dict) -> dict[str, int]:
+    """Slå edge- og RPC-reasons sammen til ét flat dict for denne flush."""
+    merged: dict[str, int] = {}
+    for key in ("reject_reasons", "rpc_reject_reasons"):
+        src = response.get(key) or {}
+        if isinstance(src, dict):
+            for reason, n in src.items():
+                if not isinstance(n, int) or n <= 0:
+                    continue
+                merged[reason] = merged.get(reason, 0) + n
+    return merged
 
 
 def post_rpc_legacy(positions: list[dict]) -> bool:
@@ -113,11 +152,27 @@ def flush():
     stats["sent"] += len(batch)
 
     # Primær: Edge Function (ny pipeline)
-    accepted, rejected = post_edge_function(batch)
+    response = post_edge_function(batch)
+    accepted = int(response.get("accepted", 0) or 0)
+    rejected = int(response.get("rejected", 0) or 0)
     stats["accepted"] += accepted
     stats["rejected"] += rejected
 
-    log.info(f"[new] {accepted} accepted, {rejected} rejected  |  total sent={stats['sent']}")
+    # Per-reason breakdown — læg både denne flush og total i log.
+    reasons = merge_reject_reasons(response)
+    if reasons:
+        for reason, n in reasons.items():
+            reject_reason_totals[reason] = reject_reason_totals.get(reason, 0) + n
+        reasons_str = " ".join(f"{k}={v}" for k, v in sorted(reasons.items()))
+        log.info(
+            f"[new] {accepted} accepted, {rejected} rejected "
+            f"(edge={response.get('edge_rejected', '?')} rpc={response.get('rpc_rejected', '?')}) "
+            f"reasons: {reasons_str}  |  total sent={stats['sent']}"
+        )
+    else:
+        log.info(
+            f"[new] {accepted} accepted, {rejected} rejected  |  total sent={stats['sent']}"
+        )
 
     # Dual-write til gamle tabeller (midlertidigt)
     if DUAL_WRITE:
@@ -303,7 +358,16 @@ def main():
         flush()
     finally:
         sock.close()
-        log.info(f"Slut. Sendt={stats['sent']} accepted={stats['accepted']} rejected={stats['rejected']}")
+        summary = (
+            f"Slut. Sendt={stats['sent']} accepted={stats['accepted']} "
+            f"rejected={stats['rejected']}"
+        )
+        if reject_reason_totals:
+            reasons_str = " ".join(
+                f"{k}={v}" for k, v in sorted(reject_reason_totals.items())
+            )
+            summary += f" reasons: {reasons_str}"
+        log.info(summary)
 
 
 if __name__ == "__main__":
