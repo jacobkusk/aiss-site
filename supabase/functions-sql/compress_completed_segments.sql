@@ -6,6 +6,7 @@
 CREATE OR REPLACE FUNCTION public.compress_completed_segments(p_idle_minutes integer DEFAULT 2, p_epsilon_m double precision DEFAULT 10.0)
  RETURNS TABLE(track_id uuid, entity_id uuid, raw_points integer, compressed_points integer, ratio double precision)
  LANGUAGE plpgsql
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_epsilon_deg        FLOAT;

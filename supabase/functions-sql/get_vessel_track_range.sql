@@ -11,6 +11,7 @@ CREATE OR REPLACE FUNCTION public.get_vessel_track_range(
  RETURNS jsonb
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_entity_id   uuid;

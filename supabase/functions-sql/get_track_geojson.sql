@@ -14,6 +14,7 @@ CREATE OR REPLACE FUNCTION public.get_track_geojson(p_mmsi bigint)
  RETURNS jsonb
  LANGUAGE sql
  STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
   WITH entity AS (
     SELECT entity_id FROM entities
@@ -57,6 +58,7 @@ CREATE OR REPLACE FUNCTION public.get_track_geojson(
  RETURNS jsonb
  LANGUAGE sql
  STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
   WITH entity AS (
     SELECT entity_id FROM entities

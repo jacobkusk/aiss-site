@@ -2,6 +2,7 @@ CREATE OR REPLACE FUNCTION public.run_rpc_health_checks()
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_ok     boolean;

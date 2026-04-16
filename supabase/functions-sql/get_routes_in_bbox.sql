@@ -11,6 +11,7 @@ CREATE OR REPLACE FUNCTION public.get_routes_in_bbox(
  RETURNS jsonb
  LANGUAGE sql
  STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
   SELECT COALESCE(
     jsonb_build_object(

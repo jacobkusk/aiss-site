@@ -19,6 +19,7 @@ CREATE OR REPLACE FUNCTION public.build_dp_tracks(p_epsilon_m double precision D
  RETURNS jsonb
  LANGUAGE sql
  SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
   WITH t0 AS (SELECT clock_timestamp() AS ts),
   all_pos AS (SELECT entity_id, lon, lat, alt, t FROM positions_v2),

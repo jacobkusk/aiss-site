@@ -2,6 +2,7 @@ CREATE OR REPLACE FUNCTION public.get_live_vessels(p_minutes integer DEFAULT 30)
  RETURNS TABLE(entity_id uuid, display_name text, mmsi bigint, lat double precision, lon double precision, speed double precision, bearing double precision, t timestamp with time zone, source text, source_count integer, sensors jsonb)
  LANGUAGE sql
  STABLE
+ SET search_path TO 'public'
 AS $function$
   SELECT 
     el.entity_id,

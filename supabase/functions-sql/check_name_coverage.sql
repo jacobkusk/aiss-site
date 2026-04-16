@@ -14,6 +14,7 @@
 CREATE OR REPLACE FUNCTION public.check_name_coverage()
  RETURNS TABLE(total_entities bigint, with_name bigint, without_name bigint, name_pct numeric, recent_24h bigint, recent_with_name bigint, recent_name_pct numeric, oldest_nameless_mmsi text, status text)
  LANGUAGE plpgsql
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_total bigint;

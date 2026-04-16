@@ -7,6 +7,7 @@ CREATE OR REPLACE FUNCTION public.search_vessels(q text)
  RETURNS jsonb
  LANGUAGE sql
  STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
   SELECT COALESCE(jsonb_agg(row ORDER BY row->>'last_t' DESC NULLS LAST), '[]'::jsonb)
   FROM (

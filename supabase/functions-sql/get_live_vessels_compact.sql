@@ -19,6 +19,7 @@ CREATE OR REPLACE FUNCTION public.get_live_vessels_compact()
    name text
  )
  LANGUAGE plpgsql
+ SET search_path TO 'public'
 AS $function$
 BEGIN
   RETURN QUERY

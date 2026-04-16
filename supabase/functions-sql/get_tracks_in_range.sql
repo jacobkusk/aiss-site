@@ -1,6 +1,7 @@
 CREATE OR REPLACE FUNCTION public.get_tracks_in_range(p_start timestamp with time zone, p_end timestamp with time zone)
  RETURNS json
  LANGUAGE plpgsql
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_result JSON;

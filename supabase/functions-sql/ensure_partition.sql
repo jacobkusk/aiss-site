@@ -1,6 +1,7 @@
 CREATE OR REPLACE FUNCTION public.ensure_partition(p_date date)
  RETURNS void
  LANGUAGE plpgsql
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_partition_name TEXT;

@@ -2,6 +2,7 @@ CREATE OR REPLACE FUNCTION public.get_vessel_track(p_mmsi bigint, p_minutes inte
  RETURNS jsonb
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   v_entity_id  uuid;

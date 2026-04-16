@@ -2,6 +2,7 @@ CREATE OR REPLACE FUNCTION public.predict_position(p_lat double precision, p_lon
  RETURNS geography
  LANGUAGE plpgsql
  IMMUTABLE
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   distance_nm REAL;

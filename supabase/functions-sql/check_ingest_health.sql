@@ -15,6 +15,7 @@ CREATE OR REPLACE FUNCTION public.check_ingest_health()
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 DECLARE
   result jsonb;
