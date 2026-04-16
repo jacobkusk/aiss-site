@@ -340,7 +340,6 @@ export default function MapPage() {
     if (typeof raw === "string") try { raw = JSON.parse(raw); } catch { /* keep as-is */ }
     raw = raw ?? {};
 
-    console.log("[replay] loaded:", raw.points?.length ?? 0, "points");
     const pts: { mmsi: number; name: string | null; lon: number; lat: number; sog: number | null; cog: number | null; t: number }[] = raw.points ?? [];
 
     const map: TrackMap = new Map();

@@ -137,7 +137,6 @@ export default function VesselLayer({ onVesselClick, onVesselUpdate, selectedMms
       const features = map.queryRenderedFeatures(e.point, { layers: [LAYER_DOT] });
       if (!features.length) return;
       const p = features[0].properties as any;
-      console.log("[vessel] click mmsi:", p.mmsi);
       onVesselClick({
         mmsi: p.mmsi,
         name: p.name || null,
@@ -179,10 +178,9 @@ export default function VesselLayer({ onVesselClick, onVesselUpdate, selectedMms
 
     async function fetchVessels() {
       const { data, error } = await supabase.rpc("get_live_vessels_compact");
-      if (error || !data) { console.log("[vessels] error:", error?.message); return; }
+      if (error || !data) { console.error("[vessels] error:", error?.message); return; }
 
       const rows = data as any[];
-      console.log("[vessels] fetched:", rows.length, "data sample:", rows[0]);
 
       const geojson: GeoJSON.FeatureCollection = {
         type: "FeatureCollection",
