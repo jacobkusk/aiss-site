@@ -42,7 +42,7 @@ Edge Functions (`supabase/functions/`) — all with top-level try/catch per `doc
 | Function | Version | JWT | Purpose |
 |---|---|---|---|
 | `ingest-positions` | v7 | no | Primary ingest: normalise → validate → `ingest_positions_v2` RPC, per-reason rejection counters. |
-| `ingest-ais` | v5 | no | Legacy endpoint — PI still points here; normalises and redirects into `ingest_positions_v2`. |
+| `ingest-ais` | v5 | no | Legacy redirect — normalises and forwards into `ingest_positions_v2` RPC. PI points at `ingest-positions`; kept for backwards compat with any external caller still using the old name. |
 | `health` | v3 | no | Public read-only heartbeat — returns `ok/stale/down` plus 5min/1h/30min counts. |
 | `alert-health` | v5 | no | pg_cron every 5 min — emails via Resend on Pi/RPC outages + recovery. Individual try/catch on fetch + upsert. |
 | `auto-heal` | v2 | no | pg_cron every 5 min — probes ingest-positions, ensures partitions, can redeploy from `edge_function_store` if 500'ing. |

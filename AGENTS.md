@@ -11,8 +11,7 @@ Dette er ét af tre projekter der udvikles sideløbende:
 - **vier.blue** (`waveo.blue`-mappen) — port 3002 — Supabase: orkydlnqeurgcwaljnte
 - **waveo.blue** (ikke bygget endnu) — port 3001
 
-Alle arkitektur- og implementeringsbeslutninger dokumenteres i `PROJECTS.md` (dette repo).
-Ingen beslutning tages i ét projekt uden at tjekke om det påvirker de andre.
+Ingen beslutning tages i ét projekt uden at tjekke om det påvirker de andre — AIS-pipelinen bor kun her, og de to andre projekter læser via API.
 
 **Tech stack er identisk på tværs af alle tre:**
 Next.js 16, TypeScript, Supabase, Tailwind. vier og waveo henter AIS-data via aiss.network API — de har ingen egen AIS-pipeline.
