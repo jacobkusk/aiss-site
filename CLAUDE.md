@@ -33,7 +33,7 @@ Landing page + live map + API docs for aiss.network — the open maritime eviden
 | `rpc_health` | Per-RPC latency/ok history, populated by `run_rpc_health_checks` |
 | `alert_state` | Alert debouncing |
 
-Live SQL functions live in `supabase/functions-sql/` (one file per function, 1:1 with DB). Core set: `ingest_positions_v2` (write path), `get_live_vessels*` / `get_vessel_track*` / `get_tracks_in_range` / `get_vessels_at_time` / `get_track_geojson` (read path), `expire_live_vessels` / `compress_completed_segments` / `ensure_partition` / `cleanup_heal_log` (maintenance, on pg_cron), `get_ingest_health` / `get_rpc_health` / `get_system_stats` / `run_rpc_health_checks` / `check_ingest_health` / `check_name_coverage` (diagnostics), `predict_position` / `build_dp_tracks` / `search_vessels` / `get_routes_in_bbox` / `rls_auto_enable` (utilities).
+Live SQL functions live in `supabase/functions-sql/` (one file per function, 1:1 with DB). Core set: `ingest_positions_v2` (write path), `get_live_vessels*` / `get_vessel_track*` / `get_tracks_in_range` / `get_vessels_at_time` / `get_track_geojson` (read path), `expire_live_vessels` / `compress_completed_segments` / `run_rpc_health_checks` (maintenance, directly on pg_cron), `ensure_partition` / `cleanup_heal_log` (maintenance, called from `auto-heal` edge function — and `ensure_partition` also from ingest edges), `get_ingest_health` / `get_rpc_health` / `get_system_stats` / `check_ingest_health` / `check_name_coverage` (diagnostics), `predict_position` / `build_dp_tracks` / `search_vessels` / `get_routes_in_bbox` / `rls_auto_enable` (utilities).
 
 Edge Functions (`supabase/functions/`) — all with top-level try/catch per `docs/EDGE-FUNCTION-RUNBOOK.md` §1.2:
 
