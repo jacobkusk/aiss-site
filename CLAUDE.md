@@ -31,11 +31,9 @@ Landing page + live map + API docs for aiss.network — the open maritime eviden
 | `ingest_stats` | Per-flush: `accepted`, `rejected`, `batch_ms` — the PI heartbeat |
 | `heal_log` | Self-healing actions taken by scheduled checks |
 | `rpc_health` | Per-RPC latency/ok history, populated by `run_rpc_health_checks` |
-| `pi_health` | Raspberry Pi telemetry: `cpu_temp`, `disk_pct`, `mem_pct`, `rtl_ais_running`, `ais_msg_rate` |
-| `spoof_flags` | MMSI-level anomaly / spoof flags |
 | `alert_state` | Alert debouncing |
 
-Live SQL functions (`supabase/functions-sql/`): `get_live_vessels`, `get_vessel_track`, `get_tracks_in_range`, `get_vessels_at_time`, `ingest_positions_v2`, `flush_entity`, `predict_position`, `expire_live_vessels`, `ensure_partition`, `cleanup_heal_log`, `get_ingest_health`, `get_system_stats`, `run_rpc_health_checks`, `rls_auto_enable`.
+Live SQL functions live in `supabase/functions-sql/` (one file per function, 1:1 with DB). Core set: `ingest_positions_v2` (write path), `get_live_vessels*` / `get_vessel_track*` / `get_tracks_in_range` / `get_vessels_at_time` / `get_track_geojson` (read path), `expire_live_vessels` / `compress_completed_segments` / `ensure_partition` / `cleanup_heal_log` (maintenance, on pg_cron), `get_ingest_health` / `get_rpc_health` / `get_system_stats` / `run_rpc_health_checks` / `check_ingest_health` / `check_name_coverage` (diagnostics), `predict_position` / `build_dp_tracks` / `search_vessels` / `get_routes_in_bbox` / `rls_auto_enable` (utilities).
 
 Edge Functions (`supabase/functions/`) — all with top-level try/catch per `docs/EDGE-FUNCTION-RUNBOOK.md` §1.2:
 

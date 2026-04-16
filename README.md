@@ -34,8 +34,7 @@ De tekniske komponenter er kendte: PostGIS, Douglas-Peucker, Merkle-træer, Mult
 | `strings` | `MultiLineStringM` per entity per dato | linjen du ser på kortet |
 | `evidence` | append-only hash-kæde (`hash`, `prev_hash`, `pts`) | tamper-proof audit trail |
 | `ingest_sources` + `ingest_stats` | registrerede collectors og deres flush-statistik | `accepted` / `rejected` per batch |
-| `pi_health`, `heal_log`, `rpc_health`, `alert_state` | selvhelende drift | systemet holder sig selv i live |
-| `spoof_flags` | MMSI-level anomali / spoof-detektioner | beskyttelse mod manipuleret trafik |
+| `heal_log`, `rpc_health`, `alert_state` | selvhelende drift | systemet holder sig selv i live |
 
 ### Huller er information
 
