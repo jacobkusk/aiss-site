@@ -37,8 +37,9 @@ log = logging.getLogger("ais")
 SUPABASE_URL     = "https://grugesypzsebqcxcdseu.supabase.co"
 SUPABASE_KEY     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdydWdlc3lwenNlYnFjeGNkc2V1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU1MDM4NzYsImV4cCI6MjA5MTA3OTg3Nn0.InIKvUBRTdX8MI6_f0k5d276wRy-W8tAmnBbT6qyhpg"
 
-# Edge Function endpoint (ny pipeline)
+# Edge Function endpoints (ny pipeline)
 EDGE_FUNCTION_URL = f"{SUPABASE_URL}/functions/v1/ingest-positions"
+STATIC_ENDPOINT_URL = f"{SUPABASE_URL}/functions/v1/ingest-static"
 
 # Gammel RPC endpoint (dual-write fallback, sæt False når valideret)
 DUAL_WRITE       = False
@@ -54,8 +55,10 @@ UDP_PORT         = 10110  # rtl_ais default UDP output port
 # ---------------------------------------------------------------------------
 
 position_buffer: list[dict] = []
+static_buffer: list[dict] = []
 buffer_lock = threading.Lock()
 stats = {"sent": 0, "accepted": 0, "rejected": 0, "errors": 0}
+static_stats = {"sent": 0, "accepted": 0, "rejected": 0}
 
 # Cumulative reject-reason counters — populated from the Edge Function response.
 # Keys match the ingest-positions reject reasons (see docs/EDGE-FUNCTION-RUNBOOK.md §1.3):
@@ -141,13 +144,30 @@ def post_rpc_legacy(positions: list[dict]) -> bool:
 # ---------------------------------------------------------------------------
 
 def flush():
-    global position_buffer
+    global position_buffer, static_buffer
 
     with buffer_lock:
-        if not position_buffer:
-            return
         batch = position_buffer[:]
         position_buffer = []
+        static_batch = static_buffer[:]
+        static_buffer = []
+
+    # Static-batch flushes uafhængigt af positions-batchen: hvis kun Type 5
+    # er ankommet i dette interval, skal vi stadig sende dem.
+    if static_batch:
+        static_response = post_ingest_static(static_batch)
+        s_accepted = int(static_response.get("accepted", 0) or 0)
+        s_rejected = int(static_response.get("rejected", 0) or 0)
+        static_stats["sent"]     += len(static_batch)
+        static_stats["accepted"] += s_accepted
+        static_stats["rejected"] += s_rejected
+        log.info(
+            f"[static] {s_accepted} accepted, {s_rejected} rejected "
+            f"(batch={len(static_batch)}  total sent={static_stats['sent']})"
+        )
+
+    if not batch:
+        return
 
     stats["sent"] += len(batch)
 
@@ -200,7 +220,7 @@ def flush_loop():
 vessel_name_cache: dict[int, str] = {}    # mmsi → skibsnavn (til position enrichment)
 vessel_static_cache: dict[int, dict] = {}  # mmsi → sidst-sendte static snapshot
 
-def persist_vessel_static(
+def enqueue_static(
     mmsi: int,
     ship_type=None,
     callsign=None,
@@ -208,38 +228,44 @@ def persist_vessel_static(
     destination=None,
     shipname=None,
 ):
-    """Call upsert_vessel_static RPC i baggrundstråd.
+    """Append en Type 5 snapshot til static_buffer (flushes sammen med positioner).
 
-    Erstatter den gamle persist_vessel_name: vi gemmer nu hele Type 5-payloaden
-    i én RPC (ship_type, callsign, imo, destination, shipname) i stedet for
-    bare navnet via REST PATCH. Det er canonical write-path for alle static
-    fields jf. supabase/functions-sql/upsert_vessel_static.sql.
+    Vi batch'er static-rows på samme rytme som position-ingest (FLUSH_INTERVAL),
+    fordi Type 5 kommer med tilsvarende burstiness (alle skibe sender hvert
+    6. minut). RPC'en (upsert_vessel_static) er service_role only, så vi går
+    gennem ingest-static edge function — samme mønster som ingest-positions.
     """
+    row = {"mmsi": int(mmsi)}
+    if ship_type is not None:
+        row["ship_type"] = int(ship_type)
+    if callsign:
+        row["callsign"] = callsign
+    if imo is not None:
+        row["imo"] = int(imo)
+    if destination:
+        row["destination"] = destination
+    if shipname:
+        row["shipname"] = shipname
+    with buffer_lock:
+        static_buffer.append(row)
+
+
+def post_ingest_static(rows: list[dict]) -> dict:
+    """Send batch af static rows til ingest-static edge function."""
     try:
         resp = SESSION.post(
-            f"{SUPABASE_URL}/rest/v1/rpc/upsert_vessel_static",
-            json={
-                "p_mmsi": int(mmsi),
-                "p_ship_type": int(ship_type) if ship_type else None,
-                "p_callsign": callsign,
-                "p_imo": int(imo) if imo else None,
-                "p_destination": destination,
-                "p_shipname": shipname,
-            },
-            timeout=5,
+            STATIC_ENDPOINT_URL,
+            json={"static": rows},
+            timeout=10,
         )
-        if resp.status_code in (200, 204):
-            log.info(
-                f"  [static→db] MMSI={mmsi} ship_type={ship_type} "
-                f"name={shipname!r} callsign={callsign!r}"
-            )
-        else:
-            log.warning(
-                f"  [static→db] MMSI={mmsi} fejl {resp.status_code}: "
-                f"{resp.text[:200]}"
-            )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.RequestException as e:
+        log.error(f"[static] HTTP fejl: {e}")
+        return {"accepted": 0, "rejected": len(rows)}
     except Exception as e:
-        log.warning(f"  [static→db] MMSI={mmsi} exception: {e}")
+        log.error(f"[static] Uventet fejl: {e}")
+        return {"accepted": 0, "rejected": len(rows)}
 
 # ---------------------------------------------------------------------------
 # NMEA parser — bruger pyais til at decode !AIVDM sætninger
@@ -316,19 +342,15 @@ def parse_nmea_line(line: str) -> dict | None:
                     f"  [type5] MMSI={mmsi} name={snap['shipname']!r} "
                     f"ship_type={snap['ship_type']} callsign={snap['callsign']!r}"
                 )
-                # Gem til DB i baggrunden — ikke-blokerende.
-                threading.Thread(
-                    target=persist_vessel_static,
-                    kwargs={
-                        "mmsi": mmsi_int,
-                        "ship_type": snap["ship_type"],
-                        "callsign": snap["callsign"],
-                        "imo": snap["imo"],
-                        "destination": snap["destination"],
-                        "shipname": snap["shipname"],
-                    },
-                    daemon=True,
-                ).start()
+                # Buffer til næste flush — ikke-blokerende, batched.
+                enqueue_static(
+                    mmsi=mmsi_int,
+                    ship_type=snap["ship_type"],
+                    callsign=snap["callsign"],
+                    imo=snap["imo"],
+                    destination=snap["destination"],
+                    shipname=snap["shipname"],
+                )
 
         # Kun positionsbeskeder med koordinater (type 1,2,3,18,21)
         if mmsi is None or lat is None or lon is None:
@@ -415,7 +437,7 @@ def main():
     finally:
         sock.close()
         summary = (
-            f"Slut. Sendt={stats['sent']} accepted={stats['accepted']} "
+            f"Slut. positions sent={stats['sent']} accepted={stats['accepted']} "
             f"rejected={stats['rejected']}"
         )
         if reject_reason_totals:
@@ -423,6 +445,11 @@ def main():
                 f"{k}={v}" for k, v in sorted(reject_reason_totals.items())
             )
             summary += f" reasons: {reasons_str}"
+        summary += (
+            f" | static sent={static_stats['sent']} "
+            f"accepted={static_stats['accepted']} "
+            f"rejected={static_stats['rejected']}"
+        )
         log.info(summary)
 
 
