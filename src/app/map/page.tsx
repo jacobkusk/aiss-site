@@ -57,6 +57,9 @@ function fmtTime(iso: string | null, approx = false) {
   return `${prefix}${date} ${local} (${tzLabel})\n${prefix}${utc} UTC`;
 }
 
+const REPLAY_SPEEDS = [1, 5, 15, 60, 300] as const;
+const EMPTY_TRACKS: TrackMap = new Map();
+
 export default function MapPage() {
   const [selectedVessel, setSelectedVessel] = useState<SelectedVessel | null>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
@@ -90,8 +93,7 @@ export default function MapPage() {
 
   // Replay mode
   const [replayMode, setReplayMode] = useState(false);
-  const emptyTracks: TrackMap = new Map();
-  const [replayTracks, setReplayTracks] = useState<TrackMap>(emptyTracks);
+  const [replayTracks, setReplayTracks] = useState<TrackMap>(EMPTY_TRACKS);
   const [replayStart, setReplayStart] = useState<number | null>(null);  // loaded bounds (fixed)
   const [replayEnd, setReplayEnd] = useState<number | null>(null);        // loaded bounds (fixed)
   const [replayViewRange, setReplayViewRange] = useState<[number, number] | null>(null); // TRACK handle range
@@ -103,7 +105,6 @@ export default function MapPage() {
   // Replay animation loop state
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replaySpeedIdx, setReplaySpeedIdx] = useState(2); // default 15×
-  const REPLAY_SPEEDS = [1, 5, 15, 60, 300];
   const replayRafRef = useRef<number | undefined>(undefined);
   const replayLastRef = useRef<number | null>(null);
 
@@ -146,15 +147,18 @@ export default function MapPage() {
   const followedMmsiRef = useRef<number | null>(null);
   useEffect(() => { followedMmsiRef.current = followedMmsi; }, [followedMmsi]);
 
-  // Replay animation loop
+  // Replay animation loop — reads replayTime via ref so setReplayTime doesn't
+  // tear down the rAF cycle on every frame (previously wasted ~50% of frames).
   useEffect(() => {
-    if (!replayPlaying || replayTime == null || replayStart == null || replayEnd == null) return;
+    if (!replayPlaying || replayStart == null || replayEnd == null) return;
     const speed = REPLAY_SPEEDS[replaySpeedIdx];
     const tick = (now: number) => {
+      const current = replayTimeRef2.current;
+      if (current == null) return;
       if (replayLastRef.current != null) {
         const wall = now - replayLastRef.current;
         const sim = wall * speed;
-        const next = Math.min(replayTime + sim, replayEnd);
+        const next = Math.min(current + sim, replayEnd);
         setReplayTime(next);
         if (next >= replayEnd) { setReplayPlaying(false); return; }
       }
@@ -166,7 +170,7 @@ export default function MapPage() {
       if (replayRafRef.current) cancelAnimationFrame(replayRafRef.current);
       replayLastRef.current = null;
     };
-  }, [replayPlaying, replaySpeedIdx, replayTime, replayStart, replayEnd]);
+  }, [replayPlaying, replaySpeedIdx, replayStart, replayEnd]);
 
   // Async load function for replay (will be defined after handleClear, but we'll move the logic here as a placeholder)
   // This will be properly initialized in the render section

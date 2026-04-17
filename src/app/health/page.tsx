@@ -89,6 +89,7 @@ export default function HealthPage() {
   const [loading, setLoading]   = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [tick, setTick]       = useState(0);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -115,7 +116,7 @@ export default function HealthPage() {
     load();
     const id = setInterval(load, 20_000);
     return () => { mounted = false; clearInterval(id); };
-  }, []);
+  }, [retryKey]);
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
@@ -149,7 +150,7 @@ export default function HealthPage() {
       <div style={{ fontSize: 14, color: "#ef4444" }}>⚠ API fejl</div>
       <div style={{ fontSize: 12, color: "#5a8090", maxWidth: 400, textAlign: "center" }}>{apiError}</div>
       <button
-        onClick={() => { setLoading(true); setApiError(null); }}
+        onClick={() => { setLoading(true); setApiError(null); setRetryKey((k) => k + 1); }}
         style={{ fontSize: 11, color: "#2ba8c8", background: "none", border: "1px solid #2ba8c833", borderRadius: 6, padding: "6px 16px", cursor: "pointer" }}
       >
         Prøv igen

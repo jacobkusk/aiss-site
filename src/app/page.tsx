@@ -5,7 +5,7 @@ async function getStats() {
   try {
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
     const { data } = await supabase.rpc("get_system_stats");
     if (data) {
@@ -39,7 +39,7 @@ export default async function LandingPage() {
           <span style={{ color: "#ffffff" }}>AISs</span>
         </div>
         <div style={{ display: "flex", gap: "32px", alignItems: "center" }}>
-          <a href="/docs" style={{ fontSize: "14px", color: "rgba(255,255,255,0.6)", textDecoration: "none" }}>API</a>
+          <Link href="/docs" style={{ fontSize: "14px", color: "rgba(255,255,255,0.6)", textDecoration: "none" }}>API</Link>
         </div>
       </nav>
 
@@ -54,7 +54,7 @@ export default async function LandingPage() {
           AISs
         </h1>
         <p style={{ fontSize: "22px", fontWeight: 400, color: "rgba(255,255,255,0.75)", margin: "0 0 16px", lineHeight: 1.4 }}>
-          The open standard<span style={{ fontFamily: "monospace", color: "#6b8aff", fontWeight: 600, margin: "0 0.3em" }}>.aiss</span>for maritime data
+          The open standard <span style={{ fontFamily: "monospace", color: "#6b8aff", fontWeight: 600 }}>.aiss</span> for maritime data
         </p>
         <p style={{ fontSize: "17px", color: "rgba(255,255,255,0.45)", margin: "0 0 44px", lineHeight: 1.7 }}>
           Every vessel · Every voyage · Every signal<br />
@@ -97,7 +97,7 @@ export default async function LandingPage() {
             <div>{col.icon}</div>
             <div style={{ fontSize: "16px", fontWeight: 600, color: "#fff" }}>{col.title}</div>
             <div style={{ fontSize: "14px", color: "rgba(255,255,255,0.5)", lineHeight: 1.65, flex: 1, whiteSpace: "pre-line" }}>{col.body}</div>
-            <a href={col.link} style={{ fontSize: "13px", color: "#6b8aff", textDecoration: "none", fontWeight: 500 }}>{col.linkText}</a>
+            <Link href={col.link} style={{ fontSize: "13px", color: "#6b8aff", textDecoration: "none", fontWeight: 500 }}>{col.linkText}</Link>
           </div>
         ))}
       </section>
@@ -187,7 +187,7 @@ curl https://aiss.network/v1/voyage/by-mmsi/219024587
 → application/aiss+json`}
           </pre>
           <p style={{ margin: "20px 0 24px", fontSize: "15px", color: "rgba(255,255,255,0.5)" }}>Three lines of code. Global maritime data.</p>
-          <a href="/docs" style={{ fontSize: "14px", fontWeight: 600, color: "#6b8aff", textDecoration: "none" }}>API documentation →</a>
+          <Link href="/docs" style={{ fontSize: "14px", fontWeight: 600, color: "#6b8aff", textDecoration: "none" }}>API documentation →</Link>
         </div>
       </section>
 
