@@ -69,12 +69,12 @@ export default async function LandingPage() {
       </section>
 
       {/* Three columns */}
-      <section style={{ maxWidth: "1100px", width: "100%", margin: "0 auto", padding: "0 24px 72px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px", position: "relative", zIndex: 10 }}>
+      <section style={{ maxWidth: "1100px", width: "100%", margin: "0 auto", padding: "0 24px 72px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px", position: "relative", zIndex: 10 }}>
         {([
           {
             icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6b8aff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/><path d="M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/></svg>,
             title: "Open data",
-            body: "33,000+ vessels tracked live. Free API. No key needed. Routes, positions, speed, heading, destination — all searchable.",
+            body: "Live vessel tracking worldwide. Free API. No key needed. Routes, positions, speed, heading, destination — all searchable.",
             link: "/map",
             linkText: "View vessels →",
           },
@@ -106,9 +106,9 @@ export default async function LandingPage() {
       <section style={{ borderTop: "1px solid rgba(255,255,255,0.07)", borderBottom: "1px solid rgba(255,255,255,0.07)", padding: "20px 24px", position: "relative", zIndex: 10 }}>
         <div style={{ maxWidth: "1100px", margin: "0 auto", display: "flex", justifyContent: "center", gap: "48px", flexWrap: "wrap" }}>
           {[
-            { value: stats.vessels  > 0 ? stats.vessels.toLocaleString("en-US")   : "—", label: "unikke skibe" },
-            { value: stats.positions > 0 ? stats.positions.toLocaleString("en-US") : "—", label: "positioner gemt" },
-            { value: stats.stations > 0 ? stats.stations.toLocaleString("en-US")  : "—", label: "aktive kilder" },
+            { value: stats.vessels  > 0 ? stats.vessels.toLocaleString("en-US")   : "—", label: "unique vessels" },
+            { value: stats.positions > 0 ? stats.positions.toLocaleString("en-US") : "—", label: "positions stored" },
+            { value: stats.stations > 0 ? stats.stations.toLocaleString("en-US")  : "—", label: "active sources" },
           ].map((s) => (
             <div key={s.label} style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
               <span style={{ fontSize: "18px", fontWeight: 700, fontFamily: "monospace", color: "#fff" }}>{s.value}</span>
@@ -127,7 +127,7 @@ export default async function LandingPage() {
               Help the ocean remember. Feed your station to AISs — open data, signed and permanent.
             </p>
           </div>
-          <Link href="/map" style={{ fontSize: "15px", fontWeight: 600, color: "#fff", background: "linear-gradient(135deg, #4a6aff, #6b8aff)", padding: "14px 32px", borderRadius: "8px", textDecoration: "none", flexShrink: 0 }}>
+          <Link href="/docs" style={{ fontSize: "15px", fontWeight: 600, color: "#fff", background: "linear-gradient(135deg, #4a6aff, #6b8aff)", padding: "14px 32px", borderRadius: "8px", textDecoration: "none", flexShrink: 0 }}>
             Add your station →
           </Link>
         </div>
@@ -159,7 +159,7 @@ export default async function LandingPage() {
       {/* How it works */}
       <section style={{ maxWidth: "1100px", margin: "0 auto", padding: "0 24px 80px", position: "relative", zIndex: 10 }}>
         <p style={{ fontSize: "13px", fontWeight: 600, letterSpacing: "1.5px", color: "#6b8aff", textTransform: "uppercase", marginBottom: "40px" }}>How it works</p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "20px" }}>
           {[
             { n: "1", title: "Stations witness", body: "AIS receivers worldwide feed signed data to AISs" },
             { n: "2", title: "Routes compress", body: "Positions become permanent vessel routes" },
@@ -194,7 +194,7 @@ curl https://aiss.network/v1/voyage/by-mmsi/219024587
       {/* Footer */}
       <footer style={{ padding: "24px 40px", textAlign: "center", fontSize: "12px", color: "rgba(255,255,255,0.2)", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
         <div>An open protocol by <span style={{ color: "#6b8aff", fontWeight: 600 }}>aiss.network</span></div>
-        <div style={{ marginTop: "6px", fontStyle: "italic", opacity: 0.6 }}>&ldquo;Perhaps also to save the sea&rsquo;s soul.&rdquo; — Jacob Viit Kusk, 7. april 2026</div>
+        <div style={{ marginTop: "6px", fontStyle: "italic", opacity: 0.6 }}>&ldquo;Perhaps also to save the sea&rsquo;s soul.&rdquo;</div>
       </footer>
     </div>
   );

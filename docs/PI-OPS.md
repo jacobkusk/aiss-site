@@ -291,7 +291,7 @@ sudo systemctl restart ais-ingest && sleep 5 && sudo journalctl -u ais-ingest -n
 
 **Aldrig bruge heredoc til store filer** — brug altid SCP.
 
-**Scriptet ligger på `/home/pi/ais_to_supabase.py`** — ikke i aiss-site eller nogen undermappe.
+**Scriptet ligger på `/home/pi/ais_to_supabase.py`** — ikke i aiss eller nogen undermappe.
 
 ---
 
