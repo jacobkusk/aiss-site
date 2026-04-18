@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import MapView from "@/components/map/Map";
 import VesselLayer from "@/components/map/VesselLayer";
 import ReplayLayer, { type TrackMap } from "@/components/map/ReplayLayer";
@@ -81,6 +81,8 @@ export default function MapPage() {
   const [timeRange, setTimeRange] = useState<[number, number] | null>(null);
   const focusTimeRef = useRef<number | null>(null);
   const [waypointTimes, setWaypointTimes] = useState<number[]>([]);
+  const [waypointSpeeds, setWaypointSpeeds] = useState<(number | null)[]>([]);
+  const [waypointColors, setWaypointColors] = useState<(string | null)[]>([]);
   const [focusedWpTime, setFocusedWpTime] = useState<number | null>(null);
 
   // Voyage picker (historical range fetch)
@@ -99,8 +101,36 @@ export default function MapPage() {
   const [replayViewRange, setReplayViewRange] = useState<[number, number] | null>(null); // TRACK handle range
   const [replayTime, setReplayTime] = useState<number | null>(null);
 
+  // Aggregeret flåde-timeline for TIMESTRIP i TIME MACHINE-mode.
+  // Uden dette er timestrip'en tom når man har loadet 2 dages replay-data men
+  // endnu ikke har valgt en specifik båd. Parres som {t, sog} for at holde
+  // speeds justeret efter sortering.
+  const replayAggregate = useMemo<{ times: number[]; speeds: (number | null)[] }>(() => {
+    if (replayTracks.size === 0) return { times: [], speeds: [] };
+    const pairs: { t: number; sog: number | null }[] = [];
+    replayTracks.forEach((v) => {
+      for (const p of v.points) pairs.push({ t: p.t * 1000, sog: p.sog });
+    });
+    pairs.sort((a, b) => a.t - b.t);
+    return {
+      times:  pairs.map((p) => p.t),
+      speeds: pairs.map((p) => p.sog),
+    };
+  }, [replayTracks]);
+
   // Panel mode (LIVE vs TIME MACHINE)
   const [panelMode, setPanelMode] = useState<"live" | "timemachine">("live");
+
+  // Timeline panel visibility — user-controlled toggle (floating button on map)
+  const [timePanelOpen, setTimePanelOpen] = useState(false);
+
+  // Auto-open Timeline when a vessel gets selected or Time Machine is engaged
+  useEffect(() => {
+    if (selectedVessel) setTimePanelOpen(true);
+  }, [selectedVessel]);
+  useEffect(() => {
+    if (panelMode === "timemachine") setTimePanelOpen(true);
+  }, [panelMode]);
 
   // Replay animation loop state
   const [replayPlaying, setReplayPlaying] = useState(false);
@@ -193,27 +223,25 @@ export default function MapPage() {
       setPendingHistoricalVessel(false);
     }
 
-    focusTimeRef.current = null;
-
-    // In voyage mode (historical vessels), show the full range — don't clamp to a day
-    if (voyageMode) {
-      setTimeRange(effectiveBounds);
-      return;
-    }
-
-    const MAX_MS = 24 * 60 * 60_000; // Track Inspector default = 24 hours
-    const span   = effectiveBounds[1] - effectiveBounds[0];
-
-    if (!inReplay) {
-      // Live: show from UTC midnight today → now (max 24h)
-      const midnight = new Date(effectiveBounds[1]);
-      midnight.setUTCHours(0, 0, 0, 0);
-      const dayStart = Math.max(effectiveBounds[0], midnight.getTime());
-      setTimeRange([dayStart, effectiveBounds[1]]);
-    } else {
-      // Replay: show the vessel's full available track — MOMENT handle shows current replay time
-      setTimeRange([effectiveBounds[0], effectiveBounds[1]]);
-    }
+    // Only auto-default timeRange when we don't already have one
+    // (i.e. first fetch for this vessel). TrackLayer polls every 30s and
+    // re-emits bounds — we must NOT reset the user's chosen viewport on each poll,
+    // otherwise the handles "jump out to the side" a few seconds after the user
+    // drags them in. handleClear() sets timeRange to null on vessel switch,
+    // which is the correct moment to re-initialize here.
+    setTimeRange((prev) => {
+      if (prev != null) return prev;
+      if (voyageMode) return effectiveBounds;
+      if (!inReplay) {
+        // Live: show from UTC midnight today → now (max 24h)
+        const midnight = new Date(effectiveBounds[1]);
+        midnight.setUTCHours(0, 0, 0, 0);
+        const dayStart = Math.max(effectiveBounds[0], midnight.getTime());
+        return [dayStart, effectiveBounds[1]];
+      }
+      // Replay: show the vessel's full available track
+      return [effectiveBounds[0], effectiveBounds[1]];
+    });
   }, [pendingHistoricalVessel, voyageMode]);
 
   const handleVesselHover = useCallback((d: Parameters<React.ComponentProps<typeof VesselLayer>["onHover"]>[0]) => {
@@ -265,6 +293,8 @@ export default function MapPage() {
     setTimeBounds(null);
     setTimeRange(null);
     setWaypointTimes([]);
+    setWaypointSpeeds([]);
+    setWaypointColors([]);
     setFocusedWpTime(null);
     setVoyageMode(false);
     setVoyagePickerOpen(false);
@@ -417,6 +447,8 @@ export default function MapPage() {
           (m as any).setProjection(v ? { type: "globe" } : { type: "mercator" });
           if (v && m.getZoom() > 5) m.easeTo({ zoom: 2.5, duration: 600 });
         }}
+        timelineOpen={timePanelOpen}
+        onTimelineToggle={() => setTimePanelOpen((v) => !v)}
       />
       <div style={{ position: "relative", flex: 1 }}>
         <MapView theme={theme} showLabels={showLabels}>
@@ -428,7 +460,7 @@ export default function MapPage() {
               onVesselDoubleClick={handleReplayVesselDoubleClick}
               onClickEmpty={handleReplayClickEmpty}
               onHover={handleVesselHover}
-              hiddenMmsi={null}
+              hiddenMmsi={selectedVessel?.mmsi ?? null}
               dimOthers={!!selectedVessel}
               followedMmsi={followedMmsi}
             />
@@ -447,10 +479,24 @@ export default function MapPage() {
             onHover={handleWaypointHover}
             onWaypointClick={setFocusedWpTime}
 
-            timeRange={timeRange}
+            // I TIME MACHINE-mode følger track-filteret TIMESTRIP'en (replayViewRange)
+            // så kortet beskæres til den smalle valgte tidsperiode. I LIVE-mode bruger
+            // vi timeRange direkte. Uden dette var TrackLayer hængt på timeRange mens
+            // TIMESTRIP-dragget kun skrev til replayViewRange → kortet klippede ikke.
+            timeRange={panelMode === "timemachine" ? (replayViewRange ?? timeRange) : timeRange}
             onTimeBounds={handleTimeBounds}
-            onWaypointTimes={setWaypointTimes}
-            focusedTime={focusedWpTime}
+            onWaypointTimes={(times) => {
+              setWaypointTimes(times);
+              // Auto-place the MOMENT marker on the LATEST waypoint so the orange
+              // dot appears immediately when a vessel is selected — scrub the FRAME
+              // to move it along the line.
+              if (times.length) {
+                setFocusedWpTime((prev) => prev == null ? times[times.length - 1] : prev);
+              }
+            }}
+            onWaypointSpeeds={setWaypointSpeeds}
+            onWaypointColors={setWaypointColors}
+            focusedTime={replayMode ? (replayTime ?? focusedWpTime) : focusedWpTime}
             replayMode={replayMode}
             livePosition={!replayMode ? selectedVessel : null}
             voyageMode={voyageMode}
@@ -475,28 +521,46 @@ export default function MapPage() {
           <VesselPanel vessel={selectedVessel} onClose={handleClear} />
         )}
         {hover && <Tooltip data={hover.data} x={hover.x} y={hover.y} />}
-        {((timeBounds && timeRange) || panelMode === "timemachine") && (
+
+        {timePanelOpen && (
           <TimeSlider
-            minTime={panelMode === "timemachine" && replayStart != null ? replayStart : (sliderMinTime || 0)}
-            maxTime={panelMode === "timemachine" && replayEnd != null ? replayEnd : (sliderMaxTime || Date.now())}
-            value={panelMode === "timemachine" && replayViewRange != null ? replayViewRange : (timeRange || [0, Date.now()])}
+            minTime={
+              panelMode === "timemachine" && replayStart != null
+                ? replayStart
+                : (sliderMinTime || (Date.now() - 24 * 60 * 60_000))
+            }
+            maxTime={
+              panelMode === "timemachine" && replayEnd != null
+                ? replayEnd
+                : (sliderMaxTime || Date.now())
+            }
+            value={
+              panelMode === "timemachine" && replayViewRange != null
+                ? replayViewRange
+                : (timeRange || [Date.now() - 24 * 60 * 60_000, Date.now()])
+            }
             onChange={panelMode === "timemachine" ? setReplayViewRange : setTimeRange}
             onClose={() => {
-              handleClear();
-              if (panelMode === "timemachine") {
-                setPanelMode("live");
-                setReplayMode(false);
-                setReplayTracks(EMPTY_TRACKS);
-                setReplayTime(null);
-                setReplayStart(null);
-                setReplayEnd(null);
-                setReplayViewRange(null);
-                setReplayPlaying(false);
-                setReplayVesselCount(null);
-              }
+              // X just hides the Timeline panel — vessel selection + replay state are preserved.
+              // Clicking the floating Timeline button re-opens it with the same state.
+              setTimePanelOpen(false);
             }}
             bottom={28}
-            waypoints={panelMode === "live" ? waypointTimes : undefined}
+            waypoints={
+              waypointTimes.length
+                ? waypointTimes
+                : (panelMode === "timemachine" && replayAggregate.times.length
+                    ? replayAggregate.times
+                    : undefined)
+            }
+            waypointSpeeds={
+              waypointTimes.length
+                ? waypointSpeeds
+                : (panelMode === "timemachine" && replayAggregate.speeds.length
+                    ? replayAggregate.speeds
+                    : undefined)
+            }
+            waypointColors={waypointTimes.length ? waypointColors : undefined}
             focusTime={panelMode === "live" ? focusedWpTime : (panelMode === "timemachine" ? replayTime : null)}
             onFocusTimeChange={panelMode === "live" ? setFocusedWpTime : (panelMode === "timemachine" ? setReplayTime : undefined)}
             onExpandToVoyage={panelMode === "live" ? () => {
